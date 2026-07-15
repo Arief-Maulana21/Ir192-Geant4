@@ -29,6 +29,34 @@ if(!t){
 std::cout<<"Entries = "<<t->GetEntries()<<std::endl;
 
 //////////////////////////////////////////////////////
+// Primary dose in Detector A
+//////////////////////////////////////////////////////
+
+TH1D *hPrimaryDose =
+new TH1D(
+"hPrimaryDose",
+"Primary Dose in Detector A;Deposited Energy (keV);Counts",
+300,0,700);
+
+t->Draw(
+"Edep_keV>>hPrimaryDose",
+"ParentID==0 && VolumeName==\"DetectorA\"",
+"goff");
+
+TH1D *hPrimaryDose =
+new TH1D(
+"hPrimaryDose",
+"Primary Dose in Detector A;Deposited Energy (keV);Counts",
+300,0,400);
+
+t->Draw(
+"Edep_keV>>hPrimaryDose",
+"ParentID==0 && VolumeName==\"DetectorA\"",
+"goff");
+
+
+
+//////////////////////////////////////////////////////
 // Electron spectrum
 //////////////////////////////////////////////////////
 
@@ -140,6 +168,20 @@ std::cout<<"========== SUMMARY =========="<<std::endl;
 
 std::cout<<"Total entries : "<<t->GetEntries()<<std::endl;
 
+Long64_t NPrimary =
+t->GetEntries("ParentID==0 && VolumeName==\"DetectorA\"");
+
+std::cout
+<< "Primary interactions in Detector A : "
+<< NPrimary
+<< std::endl;
+
+std::cout
+<< "Mean primary deposited energy = "
+<< hPrimaryDose->GetMean()
+<< " keV"
+<< std::endl;
+
 std::cout<<"Electrons : "
 <<t->GetEntries("Particle==\"e-\"")
 <<std::endl;
@@ -164,6 +206,7 @@ std::cout<<"Mean track length = "
 <<hTrack->GetMean()
 <<" mm"<<std::endl;
 
+
 std::ofstream out("../Result/SpectrumSummary.txt");
 
 out<<"========== Ir192 Simulation ==========\n";
@@ -187,6 +230,7 @@ out<<"Mean electron energy = "
 out<<"Mean deposited energy = "
 <<hDose->GetMean()
 <<std::endl;
+
 
 out<<"Electron Yield = "
 <<100.*Nelectron/Nprimary
