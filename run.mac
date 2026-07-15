@@ -1,0 +1,24 @@
+# ============================================
+# Initialization
+# ============================================
+
+/run/initialize
+
+# ============================================
+# Visualization (optional)
+/vis/disable
+
+# ============================================
+# Particle source
+
+/gun/particle gamma
+/gun/position 0 0 0 mm
+/gun/direction 0 0 1
+
+# Energy will be overwritten by Ir192Spectrum
+/gun/energy 300 keV
+
+# ============================================
+# Run
+
+/run/beamOn 10000
