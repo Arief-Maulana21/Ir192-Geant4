@@ -1,5 +1,6 @@
-#ifndef TrackingAction_h
-#define TrackingAction_h 1
+
+#ifndef B1TrackingAction_h
+#define B1TrackingAction_h 1
 
 #include "G4UserTrackingAction.hh"
 
@@ -14,14 +15,17 @@ class TrackingAction : public G4UserTrackingAction
 {
 public:
 
-    TrackingAction(RunAction*);
-    virtual ~TrackingAction() = default;
+    explicit TrackingAction(RunAction* runAction);
 
-    virtual void PreUserTrackingAction(const G4Track*) override;
+    ~TrackingAction() override = default;
+
+    void PreUserTrackingAction(
+        const G4Track* track
+    ) override;
 
 private:
 
-    RunAction* fRunAction;
+    RunAction* fRunAction = nullptr;
 
 };
 

@@ -3,145 +3,270 @@
 
 #include "DetectorConstruction.hh"
 #include "EventAction.hh"
+
 #include "G4Track.hh"
+#include "G4Step.hh"
+#include "G4StepPoint.hh"
 #include "G4ParticleDefinition.hh"
 #include "G4VProcess.hh"
+#include "G4LogicalVolume.hh"
+#include "G4VPhysicalVolume.hh"
+
+#include "G4RunManager.hh"
+#include "G4Event.hh"
+#include "G4AnalysisManager.hh"
+
 #include "G4SystemOfUnits.hh"
 #include "G4ios.hh"
-#include "G4Event.hh"
-#include "G4LogicalVolume.hh"
-#include "G4RunManager.hh"
-#include "G4Step.hh"
-#include "G4AnalysisManager.hh"
 
 namespace B1
 {
 
-//....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
+SteppingAction::SteppingAction(EventAction* eventAction)
+    : fEventAction(eventAction)
+{
+}
 
-SteppingAction::SteppingAction(EventAction* eventAction) : fEventAction(eventAction) {}
 
-//....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
+// =====================================================
+// USER STEPPING ACTION
+// =====================================================
 
 void SteppingAction::UserSteppingAction(const G4Step* step)
 {
-  if (!fScoringVolume) {
-    const auto detConstruction = static_cast<const DetectorConstruction*>(
-      G4RunManager::GetRunManager()->GetUserDetectorConstruction());
-    fScoringVolume = detConstruction->GetScoringVolume();
-  }
+    // =================================================
+    // 1. GET SCORING VOLUME
+    // =================================================
 
-  // get volume of the current step
-  G4LogicalVolume* volume =
-    step->GetPreStepPoint()->GetTouchableHandle()->GetVolume()->GetLogicalVolume();
-  // check if we are in scoring volume
-  if (volume -> GetName()=="Lead") return;
+    if (!fScoringVolume)
+    {
+        const auto detConstruction =
+            static_cast<const DetectorConstruction*>(
+                G4RunManager::GetRunManager()
+                    ->GetUserDetectorConstruction()
+            );
 
-  auto track = step->GetTrack();
-  
-  G4int trackID = track->GetTrackID();
-  G4int parentID = track->GetParentID();
+        fScoringVolume =
+            detConstruction->GetScoringVolume();
+    }
 
 
-  G4String particleName =
-    track->GetParticleDefinition()->GetParticleName();
- 
-    if(particleName!="gamma" &&
-   particleName!="e-" &&
-   particleName!="e+")
-    return;
-  G4String volumeName =
-    volume->GetName();
-  
-  if(volumeName!="DetectorA")
-      return;
-  
-  G4String creatorProcess = "Primary"; 
+    // =================================================
+    // 2. GET TRACK AND STEP INFORMATION
+    // =================================================
 
-  if(track->GetCreatorProcess())
-{
-  creatorProcess = 
-          track->GetCreatorProcess()->GetProcessName();
+    auto track = step->GetTrack();
+
+    auto preStepPoint = step->GetPreStepPoint();
+    auto postStepPoint = step->GetPostStepPoint();
+
+    auto physicalVolume =
+        preStepPoint->GetPhysicalVolume();
+
+    if (!physicalVolume)
+        return;
+
+    auto logicalVolume =
+        physicalVolume->GetLogicalVolume();
+
+    G4String volumeName =
+        physicalVolume->GetName();
+
+    G4double edepStep =
+        step->GetTotalEnergyDeposit();
+
+
+    // =================================================
+    // 3. ENERGY DEPOSITION FOR DOSE
+    // =================================================
+
+    // Only score deposited energy in DetectorA.
+    // This is independent of the ROOT step logging.
+
+    if (logicalVolume == fScoringVolume)
+    {
+        fEventAction->AddEdep(edepStep);
+    }
+
+
+    // =================================================
+    // 4. PARTICLE INFORMATION
+    // =================================================
+
+    G4String particleName =
+        track->GetParticleDefinition()
+            ->GetParticleName();
+
+    // Record gamma, electron and positron steps.
+    if (particleName != "gamma" &&
+        particleName != "e-" &&
+        particleName != "e+")
+    {
+        return;
+    }
+
+    G4int trackID = track->GetTrackID();
+    G4int parentID = track->GetParentID();
+
+
+    // =================================================
+    // 5. CREATOR PROCESS
+    // =================================================
+
+    G4String creatorProcess = "Primary";
+
+    if (track->GetCreatorProcess())
+    {
+        creatorProcess =
+            track->GetCreatorProcess()
+                ->GetProcessName();
+    }
+
+
+    // =================================================
+    // 6. STEP PROCESS
+    // =================================================
+
+    G4String processName = "None";
+
+    if (postStepPoint->GetProcessDefinedStep())
+    {
+        processName =
+            postStepPoint->GetProcessDefinedStep()
+                ->GetProcessName();
+    }
+
+    // Exclude transportation-only steps from logging.
+    if (processName == "Transportation" ||
+        processName == "CoupledTransportation")
+    {
+        return;
+    }
+
+
+    // =================================================
+    // 7. ENERGY AND POSITION
+    // =================================================
+
+    G4double energy =
+        preStepPoint->GetKineticEnergy();
+
+    G4ThreeVector position =
+        preStepPoint->GetPosition();
+
+    G4ThreeVector direction =
+        preStepPoint->GetMomentumDirection();
+
+    G4double globalTime =
+        preStepPoint->GetGlobalTime();
+
+    G4double weight =
+        track->GetWeight();
+
+    G4double trackLength =
+        track->GetTrackLength();
+
+
+    // =================================================
+    // 8. CREATOR VOLUME
+    // =================================================
+
+    // This field records the current step volume.
+    // True particle birth volume requires tracking
+    // information recorded when the secondary is created.
+
+    G4String creatorVolume = "Unknown";
+
+    if (parentID == 0)
+    {
+        creatorVolume = "Primary";
+    }
+    else
+    {
+        creatorVolume = "NotTracked";
+    }
+
+
+    // =================================================
+    // 9. EVENT ID
+    // =================================================
+
+    auto currentEvent =
+        G4RunManager::GetRunManager()
+            ->GetCurrentEvent();
+
+    if (!currentEvent)
+        return;
+
+    G4int eventID =
+        currentEvent->GetEventID();
+
+
+    // =================================================
+    // 10. FILL SECONDARY NTUPLE (ID = 0)
+    // =================================================
+
+    auto analysisManager =
+        G4AnalysisManager::Instance();
+
+    analysisManager->FillNtupleIColumn(
+        0, 0, eventID);
+
+    analysisManager->FillNtupleIColumn(
+        0, 1, trackID);
+
+    analysisManager->FillNtupleIColumn(
+        0, 2, parentID);
+
+    analysisManager->FillNtupleSColumn(
+        0, 3, particleName);
+
+    analysisManager->FillNtupleDColumn(
+        0, 4, energy / keV);
+
+    analysisManager->FillNtupleSColumn(
+        0, 5, creatorProcess);
+
+    analysisManager->FillNtupleSColumn(
+        0, 6, processName);
+
+    analysisManager->FillNtupleDColumn(
+        0, 7, position.x() / cm);
+
+    analysisManager->FillNtupleDColumn(
+        0, 8, position.y() / cm);
+
+    analysisManager->FillNtupleDColumn(
+        0, 9, position.z() / cm);
+
+    analysisManager->FillNtupleDColumn(
+        0, 10, edepStep / keV);
+
+    analysisManager->FillNtupleSColumn(
+        0, 11, volumeName);
+
+    analysisManager->FillNtupleDColumn(
+        0, 12, globalTime / ns);
+
+    analysisManager->FillNtupleDColumn(
+        0, 13, weight);
+
+    analysisManager->FillNtupleDColumn(
+        0, 14, direction.x());
+
+    analysisManager->FillNtupleDColumn(
+        0, 15, direction.y());
+
+    analysisManager->FillNtupleDColumn(
+        0, 16, direction.z());
+
+    analysisManager->FillNtupleDColumn(
+        0, 17, trackLength / mm);
+
+    analysisManager->FillNtupleSColumn(
+        0, 18, creatorVolume);
+
+    analysisManager->AddNtupleRow(0);
 }
-  G4String processName = "None";
-  
-  if(step->GetPostStepPoint()->GetProcessDefinedStep())
 
-    processName =
-      step->GetPostStepPoint()
-          ->GetProcessDefinedStep()
-          ->GetProcessName();
-
-   G4double energy =
-    step->GetPreStepPoint()->GetKineticEnergy();
-   G4double edepStep = step->GetTotalEnergyDeposit();
-   fEventAction->AddEdep(edepStep);
-   G4String creatorVolume =
-    step->GetPreStepPoint()
-        ->GetTouchableHandle()
-        ->GetVolume()
-        ->GetName();
- 
-   auto eventID =
-    G4RunManager::GetRunManager()
-    ->GetCurrentEvent()
-    ->GetEventID();
-  
-  
-if( processName == "Transportation")
-{
-    return;
-}
-{
-  auto analysisManager = G4AnalysisManager::Instance();
-   auto pos = step->GetPreStepPoint()->GetPosition();
-   auto dir = step->GetPreStepPoint()->GetMomentumDirection();
-   
-    analysisManager->FillNtupleIColumn(0,eventID);
-
-    analysisManager->FillNtupleIColumn(1,trackID);
-
-    analysisManager->FillNtupleIColumn(2,parentID);
-
-    analysisManager->FillNtupleSColumn(3,particleName);
-
-    analysisManager->FillNtupleDColumn(4,energy/keV);
-
-    analysisManager->FillNtupleSColumn(5,creatorProcess);
-
-    analysisManager->FillNtupleSColumn(6,processName);
-
-    analysisManager->FillNtupleDColumn(7,pos.x()/cm);
-
-    analysisManager->FillNtupleDColumn(8,pos.y()/cm);
-
-    analysisManager->FillNtupleDColumn(9,pos.z()/cm);
-
-    analysisManager->FillNtupleDColumn(10,edepStep/keV);
-
-    analysisManager->FillNtupleSColumn(11,volumeName);
-    
-    analysisManager->FillNtupleDColumn(12,
-    track->GetGlobalTime()/ns);
-
-    analysisManager->FillNtupleDColumn(13,
-    track->GetWeight());
-   
-    analysisManager->FillNtupleDColumn(14,dir.x());
-
-    analysisManager->FillNtupleDColumn(15,dir.y());
-
-    analysisManager->FillNtupleDColumn(16,dir.z());
-    
-    analysisManager->FillNtupleDColumn(17,track->GetTrackLength()/mm);
-
-    analysisManager->FillNtupleSColumn(18,creatorVolume);
-
-    analysisManager->AddNtupleRow();
-
-} 
-  }
-
-//....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
-
-}  // namespace B1
+} // namespace B1

@@ -7,6 +7,8 @@
 #include "G4SystemOfUnits.hh"
 #include "G4Event.hh"
 #include "Randomize.hh"
+#include "RunAction.hh"
+#include "G4RunManager.hh"
 
 #include "Ir192Spectrum.hh"
 
@@ -77,6 +79,12 @@ void PrimaryGeneratorAction::GeneratePrimaries(G4Event* event)
     // Event 2 -> Dwell 3
     // Event 3 -> Dwell 1, and so on.
 
+    auto runAction =
+    static_cast<const RunAction*>(
+        G4RunManager::GetRunManager()
+            ->GetUserRunAction()
+    );
+    
     G4int eventID = event->GetEventID();
 
     G4int numberOfDwellPositions =

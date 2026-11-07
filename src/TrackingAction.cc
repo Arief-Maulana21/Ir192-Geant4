@@ -1,56 +1,65 @@
+
 #include "TrackingAction.hh"
 #include "RunAction.hh"
 
 #include "G4Track.hh"
-#include "G4ParticleDefinition.hh"
+#include "G4Gamma.hh"
+#include "G4Electron.hh"
+#include "G4Positron.hh"
 #include "G4VProcess.hh"
 
 namespace B1
 {
 
-TrackingAction::TrackingAction(RunAction* runAction)
-: fRunAction(runAction)
+TrackingAction::TrackingAction(
+    RunAction* runAction
+)
+    : fRunAction(runAction)
 {
 }
 
-void TrackingAction::PreUserTrackingAction(const G4Track* track)
+
+void TrackingAction::PreUserTrackingAction(
+    const G4Track* track
+)
 {
+    if (!fRunAction || !track)
+        return;
+
     auto particle =
-        track->GetParticleDefinition()->GetParticleName();
+        track->GetParticleDefinition();
 
-    auto parent =
+    G4int parentID =
         track->GetParentID();
-    
-    auto process =
-        track->GetCreatorProcess();
-    if(process)
-        {
-        auto name = process->GetProcessName();
 
-        if(name=="compt")
-         fRunAction->AddCompton();
+    // ================================================
+    // PRIMARY GAMMA
+    // ================================================
 
-        if(name=="phot")
-         fRunAction->AddPhotoelectric();
-
-         if(name=="Rayl")
-         fRunAction->AddRayleigh();
-        }
-
-    // Primary gamma
-    if(parent==0 && particle=="gamma")
+    if (particle == G4Gamma::Definition() &&
+        parentID == 0)
     {
         fRunAction->AddPrimaryGamma();
     }
 
-    // Secondary gamma
-    if(parent>0 && particle=="gamma")
+
+    // ================================================
+    // SECONDARY GAMMA
+    // ================================================
+
+    if (particle == G4Gamma::Definition() &&
+        parentID > 0)
     {
         fRunAction->AddSecondaryGamma();
     }
 
-    // Secondary electron
-    if(parent>0 && particle=="e-")
+
+    // ================================================
+    // SECONDARY ELECTRON
+    // ================================================
+
+    if (particle == G4Electron::Definition() &&
+        parentID > 0)
     {
         fRunAction->AddElectron();
     }
