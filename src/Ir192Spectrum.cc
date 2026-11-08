@@ -1,3 +1,4 @@
+
 #include "Ir192Spectrum.hh"
 
 #include "Randomize.hh"
@@ -7,82 +8,165 @@
 
 #include <fstream>
 #include <sstream>
-#include <vector>
+#include <algorithm>
+#include <cmath>
 
 Ir192Spectrum::Ir192Spectrum()
 {
     ReadSpectrumFile("../data/Ir192Spectrum.dat");
 }
 
-//======================================================
+// =====================================================
+// READ IR-192 GAMMA SPECTRUM
+// =====================================================
 
-void Ir192Spectrum::ReadSpectrumFile(const std::string& filename)
+void Ir192Spectrum::ReadSpectrumFile(
+    const std::string& filename)
 {
     std::ifstream file(filename);
 
-    if(!file.is_open())
+    if (!file.is_open())
     {
+        G4ExceptionDescription msg;
+        msg << "Cannot open spectrum file: "
+            << filename;
+
         G4Exception(
-            "Ir192Spectrum",
+            "Ir192Spectrum::ReadSpectrumFile",
             "FileNotFound",
             FatalException,
-            "Cannot open Ir192Spectrum.dat");
+            msg
+        );
+
+        return;
     }
 
-    std::vector<G4double> intensity;
+    fEnergy.clear();
+    fProbability.clear();
+    fCDF.clear();
 
     std::string line;
+    G4double sum = 0.0;
 
-    while(std::getline(file,line))
+    while (std::getline(file, line))
     {
-        if(line.empty()) continue;
+        // Skip blank and comment lines
+        auto first = line.find_first_not_of(
+            " \t\r\n"
+        );
 
-        if(line[0]=='#') continue;
+        if (first == std::string::npos)
+            continue;
+
+        if (line[first] == '#')
+            continue;
 
         std::stringstream ss(line);
 
-        G4double E,I;
+        G4double energy = 0.0;
+        G4double intensity = 0.0;
 
-        ss >> E >> I;
+        if (!(ss >> energy >> intensity))
+        {
+            G4Exception(
+                "Ir192Spectrum::ReadSpectrumFile",
+                "InvalidData",
+                FatalException,
+                "Invalid spectrum data row."
+            );
 
-        fEnergy.push_back(E*keV);
+            return;
+        }
 
-        intensity.push_back(I);
+        if (!std::isfinite(energy) ||
+            !std::isfinite(intensity) ||
+            energy <= 0.0 ||
+            intensity < 0.0)
+        {
+            G4Exception(
+                "Ir192Spectrum::ReadSpectrumFile",
+                "InvalidValue",
+                FatalException,
+                "Invalid energy or intensity."
+            );
+
+            return;
+        }
+
+        fEnergy.push_back(energy * keV);
+        fProbability.push_back(intensity);
+
+        sum += intensity;
     }
 
     file.close();
 
-    G4double sum = 0.0;
+    if (fEnergy.empty() || sum <= 0.0 ||
+        !std::isfinite(sum))
+    {
+        G4Exception(
+            "Ir192Spectrum::ReadSpectrumFile",
+            "EmptySpectrum",
+            FatalException,
+            "Spectrum is empty or has invalid total intensity."
+        );
 
-    for(auto x : intensity)
-        sum += x;
+        return;
+    }
 
+    // Normalize intensities and build CDF
     G4double cumulative = 0.0;
 
-    for(auto x : intensity)
+    for (auto& probability : fProbability)
     {
-        cumulative += x/sum;
+        probability /= sum;
+
+        cumulative += probability;
+
         fCDF.push_back(cumulative);
     }
 
+    // Avoid rounding problems
+    fCDF.back() = 1.0;
+
     G4cout << G4endl;
-    G4cout << "==================================" << G4endl;
-    G4cout << "Ir-192 spectrum loaded successfully" << G4endl;
-    G4cout << "Gamma lines : " << fEnergy.size() << G4endl;
-    G4cout << "==================================" << G4endl;
+    G4cout << "=================================="
+           << G4endl;
+    G4cout << "Ir-192 gamma spectrum loaded"
+           << G4endl;
+    G4cout << "Gamma lines : "
+           << fEnergy.size()
+           << G4endl;
+    G4cout << "Total input intensity : "
+           << sum
+           << G4endl;
+    G4cout << "Normalized CDF : "
+           << fCDF.back()
+           << G4endl;
+    G4cout << "=================================="
+           << G4endl;
 }
 
-//======================================================
+// =====================================================
+// SAMPLE GAMMA ENERGY
+// =====================================================
 
 G4double Ir192Spectrum::SampleEnergy()
 {
     G4double r = G4UniformRand();
 
-    for(size_t i=0;i<fCDF.size();i++)
-    {
-        if(r < fCDF[i])
-            return fEnergy[i];
-    }
+    auto it = std::upper_bound(
+        fCDF.begin(),
+        fCDF.end(),
+        r
+    );
 
-    return fEnergy.back();
+    if (it == fCDF.end())
+        return fEnergy.back();
+
+    auto index = static_cast<size_t>(
+        std::distance(fCDF.begin(), it)
+    );
+
+    return fEnergy[index];
 }
