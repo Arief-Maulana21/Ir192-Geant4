@@ -18,6 +18,11 @@ public:
     RunAction();
     ~RunAction() override = default;
 
+    void RecordEventDose(
+    G4int eventID,
+    G4double edep
+    );
+
     void BeginOfRunAction(const G4Run*) override;
     void EndOfRunAction(const G4Run*) override;
 

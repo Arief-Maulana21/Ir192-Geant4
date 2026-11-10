@@ -1,8 +1,8 @@
 
 #include "SteppingAction.hh"
-
 #include "DetectorConstruction.hh"
 #include "EventAction.hh"
+#include "RunAction.hh"
 
 #include "G4Track.hh"
 #include "G4Step.hh"
@@ -122,6 +122,36 @@ void SteppingAction::UserSteppingAction(const G4Step* step)
                 ->GetProcessName();
     }
 
+
+    // =================================================
+    // COUNT GAMMA INTERACTIONS IN Pb
+    // =================================================
+
+if (volumeName == "PbShield" &&
+    particleName == "gamma")
+    {
+    auto runAction =
+        static_cast<RunAction*>(
+            G4RunManager::GetRunManager()
+                ->GetUserRunAction()
+        );
+
+    if (runAction)
+        {
+        if (processName == "compt")
+            {
+            runAction->AddCompton();
+            }
+        else if (processName == "phot")
+            {
+            runAction->AddPhotoelectric();
+            }
+        else if (processName == "Rayl")
+            {
+            runAction->AddRayleigh();
+            }
+        }
+    }
 
     // =================================================
     // 6. STEP PROCESS

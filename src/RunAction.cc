@@ -14,6 +14,7 @@
 #include "G4AnalysisManager.hh"
 
 #include <cmath>
+#include <algorithm>
 
 namespace B1
 {
@@ -120,6 +121,24 @@ RunAction::RunAction()
 
     analysisManager->FinishNtuple();
 
+    // =====================================================
+    // 6. EVENT DOSE NTUPLE (ID = 2)
+    // =====================================================
+
+    analysisManager->CreateNtuple(
+    "EventDose",
+    "Energy deposition per event in Detector A"
+    );
+
+    analysisManager->CreateNtupleIColumn(
+    "EventID"
+    ); // 0
+
+    analysisManager->CreateNtupleDColumn(
+    "Edep_keV"
+    ); // 1
+
+    analysisManager->FinishNtuple();
 }
 
 
@@ -177,26 +196,27 @@ void RunAction::EndOfRunAction(const G4Run* run)
     G4double edep = fEdep.GetValue();
     G4double edep2 = fEdep2.GetValue();
 
-    G4double rms =
+    G4double varianceNumerator =
         edep2 - edep * edep / nofEvents;
 
-    if (rms > 0.)
-        rms = std::sqrt(rms);
-    else
-        rms = 0.;
+    varianceNumerator =
+        std::max(0.0, varianceNumerator);
 
+    G4double standardErrorEdep = 0.0;
 
-    auto detConstruction =
-        static_cast<const DetectorConstruction*>(
-            G4RunManager::GetRunManager()
-                ->GetUserDetectorConstruction()
-        );
-
-    G4double mass =
-        detConstruction->GetScoringVolume()->GetMass();
+    if (nofEvents > 1)
+    {
+        standardErrorEdep =
+        std::sqrt(
+            varianceNumerator *
+            nofEvents / (nofEvents - 1.0)
+            );
+    }
 
     G4double dose = edep / mass;
-    G4double rmsDose = rms / mass;
+
+    G4double doseUncertainty =
+        standardErrorEdep / mass;
 
 
     // =================================================
@@ -259,8 +279,8 @@ void RunAction::EndOfRunAction(const G4Run* run)
     G4cout << "Scoring volume dose : "
            << G4BestUnit(dose, "Dose") << G4endl;
 
-    G4cout << "RMS dose : "
-           << G4BestUnit(rmsDose, "Dose") << G4endl;
+    G4cout << "Statistical dose uncertainly :"
+           << G4BestUnit(doseUncertainty, "Dose") << G4endl;
 
 
     // =================================================
@@ -335,5 +355,22 @@ void RunAction::FillPrimaryEnergy(
 
     analysisManager->AddNtupleRow(1);
 }
+    void RunAction::RecordEventDose(
+    G4int eventID,
+    G4double edep)
+    {
+    auto analysisManager =
+        G4AnalysisManager::Instance();
+
+    analysisManager->FillNtupleIColumn(
+        2, 0, eventID
+    );
+
+    analysisManager->FillNtupleDColumn(
+        2, 1, edep / keV
+    );
+
+    analysisManager->AddNtupleRow(2);
+    }
 
 } // namespace B1

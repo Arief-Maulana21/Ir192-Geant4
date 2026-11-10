@@ -2,38 +2,48 @@
 #include "EventAction.hh"
 #include "RunAction.hh"
 
+#include "G4Event.hh"
+
 namespace B1
 {
 
-EventAction::EventAction(RunAction* runAction)
+EventAction::EventAction(
+    RunAction* runAction
+)
     : fRunAction(runAction)
 {
 }
-
 
 // =====================================================
 // BEGIN OF EVENT
 // =====================================================
 
-void EventAction::BeginOfEventAction(const G4Event*)
+void EventAction::BeginOfEventAction(
+    const G4Event*
+)
 {
-    // Reset energy deposition for each event
     fEdep = 0.;
 }
-
 
 // =====================================================
 // END OF EVENT
 // =====================================================
 
-void EventAction::EndOfEventAction(const G4Event*)
+void EventAction::EndOfEventAction(
+    const G4Event* event
+)
 {
-    // Send total event energy deposition to RunAction.
-    // RunAction accumulates Edep and Edep^2 per event.
-    if (fRunAction)
-    {
-        fRunAction->AddEdep(fEdep);
-    }
+    if (!fRunAction || !event)
+        return;
+
+    // Accumulate total energy deposition
+    fRunAction->AddEdep(fEdep);
+
+    // Record energy deposition for this event
+    fRunAction->RecordEventDose(
+        event->GetEventID(),
+        fEdep
+    );
 }
 
 } // namespace B1
