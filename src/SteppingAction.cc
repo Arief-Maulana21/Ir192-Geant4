@@ -187,6 +187,114 @@ if (volumeName == "PbShield" &&
         return;
     }
 
+    // =====================================================
+    // Pb INTERACTION ANALYSIS
+    // =====================================================
+
+    if (volumeName == "PbShield" &&
+        particleName == "gamma")
+    {
+        const bool isCompton =
+        (processName == "compt");
+
+        const bool isPhotoelectric =
+        (processName == "phot");
+
+        const bool isRayleigh =
+        (processName == "Rayl");
+
+    if (isCompton || isPhotoelectric || isRayleigh)
+    {
+        auto runAction =
+            const_cast<RunAction*>(
+                static_cast<const RunAction*>(
+                    G4RunManager::GetRunManager()
+                        ->GetUserRunAction()
+                )
+            );
+
+        if (runAction)
+        {
+            if (isCompton)
+                runAction->AddCompton();
+
+            if (isPhotoelectric)
+                runAction->AddPhotoelectric();
+
+            if (isRayleigh)
+                runAction->AddRayleigh();
+        }
+
+        const G4ThreeVector interactionPosition =
+            postStepPoint->GetPosition();
+
+        const G4double energyBefore =
+            preStepPoint->GetKineticEnergy();
+
+        const G4double energyAfter =
+            postStepPoint->GetKineticEnergy();
+
+        const auto* secondaries =
+            step->GetSecondaryInCurrentStep();
+
+        const G4int nSecondaries =
+            secondaries
+                ? static_cast<G4int>(secondaries->size())
+                : 0;
+
+        auto currentEvent =
+            G4RunManager::GetRunManager()
+                ->GetCurrentEvent();
+
+        if (currentEvent)
+        {
+            const G4int eventID =
+                currentEvent->GetEventID();
+
+            auto analysis =
+                G4AnalysisManager::Instance();
+
+            analysis->FillNtupleIColumn(
+                2, 0, eventID);
+
+            analysis->FillNtupleIColumn(
+                2, 1, trackID);
+
+            analysis->FillNtupleIColumn(
+                2, 2, parentID);
+
+            analysis->FillNtupleSColumn(
+                2, 3, particleName);
+
+            analysis->FillNtupleSColumn(
+                2, 4, processName);
+
+            analysis->FillNtupleDColumn(
+                2, 5, energyBefore / keV);
+
+            analysis->FillNtupleDColumn(
+                2, 6, energyAfter / keV);
+
+            analysis->FillNtupleDColumn(
+                2, 7, edepStep / keV);
+
+            analysis->FillNtupleDColumn(
+                2, 8, interactionPosition.x() / mm);
+
+            analysis->FillNtupleDColumn(
+                2, 9, interactionPosition.y() / mm);
+
+            analysis->FillNtupleDColumn(
+                2, 10, interactionPosition.z() / mm);
+
+            analysis->FillNtupleIColumn(
+                2, 11, nSecondaries);
+
+            analysis->AddNtupleRow(2);
+        }
+    }
+}
+
 
     // =================================================
     // 7. ENERGY AND POSITION

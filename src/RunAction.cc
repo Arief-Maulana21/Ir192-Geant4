@@ -2,11 +2,9 @@
 #include "RunAction.hh"
 
 #include "DetectorConstruction.hh"
-#include "PrimaryGeneratorAction.hh"
 
 #include "G4AccumulableManager.hh"
 #include "G4LogicalVolume.hh"
-#include "G4ParticleGun.hh"
 #include "G4Run.hh"
 #include "G4RunManager.hh"
 #include "G4SystemOfUnits.hh"
@@ -19,33 +17,50 @@
 namespace B1
 {
 
+// =====================================================
+// CONSTRUCTOR
+// =====================================================
+
 RunAction::RunAction()
 {
-    // =====================================================
+    // =================================================
     // 1. DOSE UNITS
-    // =====================================================
+    // =================================================
 
-    const G4double milligray = 1.e-3 * gray;
-    const G4double microgray = 1.e-6 * gray;
-    const G4double nanogray  = 1.e-9 * gray;
-    const G4double picogray  = 1.e-12 * gray;
+    // Register custom dose units once.
+    // This follows the pattern used by Geant4 examples.
 
-    new G4UnitDefinition(
-        "milligray", "milliGy", "Dose", milligray);
+    static const G4bool unitsRegistered = []()
+    {
+        new G4UnitDefinition(
+            "milligray", "mGy", "Dose",
+            1.e-3 * gray
+        );
 
-    new G4UnitDefinition(
-        "microgray", "microGy", "Dose", microgray);
+        new G4UnitDefinition(
+            "microgray", "uGy", "Dose",
+            1.e-6 * gray
+        );
 
-    new G4UnitDefinition(
-        "nanogray", "nanoGy", "Dose", nanogray);
+        new G4UnitDefinition(
+            "nanogray", "nGy", "Dose",
+            1.e-9 * gray
+        );
 
-    new G4UnitDefinition(
-        "picogray", "picoGy", "Dose", picogray);
+        new G4UnitDefinition(
+            "picogray", "pGy", "Dose",
+            1.e-12 * gray
+        );
+
+        return true;
+    }();
+
+    (void)unitsRegistered;
 
 
-    // =====================================================
+    // =================================================
     // 2. REGISTER ACCUMULABLES
-    // =====================================================
+    // =================================================
 
     auto accumulableManager =
         G4AccumulableManager::Instance();
@@ -62,24 +77,26 @@ RunAction::RunAction()
     accumulableManager->Register(fRayleigh);
 
 
-    // =====================================================
+    // =================================================
     // 3. ANALYSIS MANAGER
-    // =====================================================
+    // =================================================
 
     auto analysisManager =
         G4AnalysisManager::Instance();
 
     analysisManager->SetVerboseLevel(1);
+
+    // Merge worker ntuples into a ROOT output file.
     analysisManager->SetNtupleMerging(true);
 
 
-    // =====================================================
-    // 4. SECONDARY RADIATION NTUPLE (ID = 0)
-    // =====================================================
+    // =================================================
+    // 4. SECONDARY NTUPLE (ID = 0)
+    // =================================================
 
     analysisManager->CreateNtuple(
         "Secondary",
-        "Secondary Radiation"
+        "Particle step information"
     );
 
     analysisManager->CreateNtupleIColumn("EventID");        // 0
@@ -105,13 +122,13 @@ RunAction::RunAction()
     analysisManager->FinishNtuple();
 
 
-    // =====================================================
-    // 5. PRIMARY GAMMA NTUPLE (ID = 1)
-    // =====================================================
+    // =================================================
+    // 5. PRIMARY NTUPLE (ID = 1)
+    // =================================================
 
     analysisManager->CreateNtuple(
         "Primary",
-        "Primary Gamma"
+        "Primary Ir-192 gamma information"
     );
 
     analysisManager->CreateNtupleIColumn("EventID");       // 0
@@ -121,22 +138,43 @@ RunAction::RunAction()
 
     analysisManager->FinishNtuple();
 
-    // =====================================================
-    // 6. EVENT DOSE NTUPLE (ID = 2)
-    // =====================================================
+
+    // =================================================
+    // 6. Pb INTERACTIONS NTUPLE (ID = 2)
+    // =================================================
 
     analysisManager->CreateNtuple(
-    "EventDose",
-    "Energy deposition per event in Detector A"
+        "PbInteractions",
+        "Photon interactions inside PbShield"
     );
 
-    analysisManager->CreateNtupleIColumn(
-    "EventID"
-    ); // 0
+    analysisManager->CreateNtupleIColumn("EventID");          // 0
+    analysisManager->CreateNtupleIColumn("TrackID");          // 1
+    analysisManager->CreateNtupleIColumn("ParentID");         // 2
+    analysisManager->CreateNtupleSColumn("Particle");         // 3
+    analysisManager->CreateNtupleSColumn("Process");          // 4
+    analysisManager->CreateNtupleDColumn("EnergyBefore_keV"); // 5
+    analysisManager->CreateNtupleDColumn("EnergyAfter_keV");  // 6
+    analysisManager->CreateNtupleDColumn("Edep_keV");         // 7
+    analysisManager->CreateNtupleDColumn("X_mm");             // 8
+    analysisManager->CreateNtupleDColumn("Y_mm");             // 9
+    analysisManager->CreateNtupleDColumn("Z_mm");             // 10
+    analysisManager->CreateNtupleIColumn("NSecondaries");     // 11
 
-    analysisManager->CreateNtupleDColumn(
-    "Edep_keV"
-    ); // 1
+    analysisManager->FinishNtuple();
+
+
+    // =================================================
+    // 7. EVENT DOSE NTUPLE (ID = 3)
+    // =================================================
+
+    analysisManager->CreateNtuple(
+        "EventDose",
+        "Energy deposition per event in scoring volume"
+    );
+
+    analysisManager->CreateNtupleIColumn("EventID");  // 0
+    analysisManager->CreateNtupleDColumn("Edep_keV"); // 1
 
     analysisManager->FinishNtuple();
 }
@@ -171,18 +209,23 @@ void RunAction::BeginOfRunAction(const G4Run*)
 
 void RunAction::EndOfRunAction(const G4Run* run)
 {
-    G4int nofEvents = run->GetNumberOfEvent();
-
     auto analysisManager =
         G4AnalysisManager::Instance();
 
+    const G4int nofEvents =
+        run->GetNumberOfEvent();
+
     if (nofEvents == 0)
     {
+        analysisManager->Write();
         analysisManager->CloseFile();
         return;
     }
 
-    // Merge accumulables
+    // =================================================
+    // 1. MERGE ACCUMULABLES
+    // =================================================
+
     auto accumulableManager =
         G4AccumulableManager::Instance();
 
@@ -190,74 +233,7 @@ void RunAction::EndOfRunAction(const G4Run* run)
 
 
     // =================================================
-    // ENERGY DEPOSITION AND DOSE
-    // =================================================
-
-    const auto* detector = 
-        static_cast<const 
-    DetectorConstruction*>(G4RunManager :: GetRunManager()
-    ->GetUserDetectorConstruction());
-
-    auto* scoringvolume = detector ->GetScoringVolume();
-
-    G4double mass = scoringvolume->GetMass();
-    
-    
-    
-    G4double edep = fEdep.GetValue();
-    G4double edep2 = fEdep2.GetValue();
-
-    G4double varianceNumerator =
-        edep2 - edep * edep / nofEvents;
-
-    varianceNumerator =
-        std::max(0.0, varianceNumerator);
-
-    G4double standardErrorEdep = 0.0;
-
-    if (nofEvents > 1)
-    {
-        standardErrorEdep =
-        std::sqrt(
-            varianceNumerator *
-            nofEvents / (nofEvents - 1.0)
-            );
-    }
-
-    G4double dose = edep / mass;
-
-    G4double doseUncertainty =
-        standardErrorEdep / mass;
-
-
-    // =================================================
-    // RUN CONDITIONS
-    // =================================================
-
-    G4String runCondition;
-
-    auto generatorAction =
-        static_cast<const PrimaryGeneratorAction*>(
-            G4RunManager::GetRunManager()
-                ->GetUserPrimaryGeneratorAction()
-        );
-
-    if (generatorAction)
-    {
-        const G4ParticleGun* particleGun =
-            generatorAction->GetParticleGun();
-
-        runCondition =
-            particleGun->GetParticleDefinition()
-                ->GetParticleName();
-
-        runCondition +=
-            " (Ir-192 sampled energy spectrum)";
-    }
-
-
-    // =================================================
-    // WRITE OUTPUT
+    // 2. WRITE ROOT OUTPUT
     // =================================================
 
     analysisManager->Write();
@@ -265,62 +241,188 @@ void RunAction::EndOfRunAction(const G4Run* run)
 
 
     // =================================================
-    // RUN SUMMARY
+    // 3. PRINT ONLY GLOBAL RUN SUMMARY
     // =================================================
 
-    if (IsMaster())
+    if (!IsMaster())
+        return;
+
+
+    // =================================================
+    // 4. SCORING VOLUME MASS
+    // =================================================
+
+    const auto* detector =
+        static_cast<const DetectorConstruction*>(
+            G4RunManager::GetRunManager()
+                ->GetUserDetectorConstruction()
+        );
+
+    if (!detector)
     {
-        G4cout << G4endl
-               << "----------- End of Global Run -----------"
+        G4cout << "ERROR: DetectorConstruction unavailable."
                << G4endl;
+        return;
     }
-    else
+
+    auto* scoringVolume =
+        detector->GetScoringVolume();
+
+    if (!scoringVolume)
     {
-        G4cout << G4endl
-               << "----------- End of Local Run ------------"
+        G4cout << "ERROR: Scoring volume unavailable."
                << G4endl;
+        return;
     }
+
+    const G4double mass =
+        scoringVolume->GetMass();
+
+    if (mass <= 0.0)
+    {
+        G4cout << "ERROR: Invalid scoring volume mass."
+               << G4endl;
+        return;
+    }
+
+
+    // =================================================
+    // 5. ENERGY DEPOSITION
+    // =================================================
+
+    const G4double edep =
+        fEdep.GetValue();
+
+    const G4double edep2 =
+        fEdep2.GetValue();
+
+
+    // =================================================
+    // 6. STATISTICAL UNCERTAINTY
+    // =================================================
+
+    G4double sigmaEdep = 0.0;
+
+    if (nofEvents > 1)
+    {
+        const G4double varianceNumerator =
+            std::max(
+                0.0,
+                edep2 - edep * edep / nofEvents
+            );
+
+        sigmaEdep = std::sqrt(
+            varianceNumerator *
+            nofEvents / (nofEvents - 1.0)
+        );
+    }
+
+
+    // =================================================
+    // 7. ABSORBED DOSE
+    // =================================================
+
+    const G4double dose =
+        edep / mass;
+
+    const G4double doseUncertainty =
+        sigmaEdep / mass;
+
+    const G4double relativeUncertainty =
+        dose > 0.0
+            ? 100.0 * doseUncertainty / dose
+            : 0.0;
+
+
+    // =================================================
+    // 8. RUN SUMMARY
+    // =================================================
+
+    G4cout << G4endl;
+    G4cout << "========================================"
+           << G4endl;
+    G4cout << "       IR-192 HDR RUN SUMMARY"
+           << G4endl;
+    G4cout << "========================================"
+           << G4endl;
 
     G4cout << "Number of events : "
            << nofEvents << G4endl;
 
-    G4cout << "Primary particle : "
-           << runCondition << G4endl;
-
-    G4cout << "Scoring volume dose : "
-           << G4BestUnit(dose, "Dose") << G4endl;
-
-    G4cout << "Statistical dose uncertainly :"
-           << G4BestUnit(doseUncertainty, "Dose") << G4endl;
-
-
-    // =================================================
-    // PARTICLE STATISTICS
-    // =================================================
-
-    G4cout << G4endl;
-    G4cout << "========== Simulation Summary =========="
+    G4cout << "Primary particle : gamma"
            << G4endl;
 
-    G4cout << "Primary gamma      : "
-           << fPrimaryGamma.GetValue() << G4endl;
+    G4cout << "Source model : Ir-192 sampled spectrum"
+           << G4endl;
 
-    G4cout << "Secondary gamma    : "
-           << fSecondaryGamma.GetValue() << G4endl;
+    G4cout << "Dwell mode : single dwell per run"
+           << G4endl;
 
-    G4cout << "Secondary electron : "
-           << fElectron.GetValue() << G4endl;
+    G4cout << "Scoring volume : "
+           << scoringVolume->GetName()
+           << G4endl;
+
+    G4cout << "Scoring mass : "
+           << G4BestUnit(mass, "Mass")
+           << G4endl;
+
+    G4cout << "Total deposited energy : "
+           << G4BestUnit(edep, "Energy")
+           << G4endl;
+
+    G4cout << "Absorbed dose : "
+           << G4BestUnit(dose, "Dose")
+           << G4endl;
+
+    G4cout << "Dose uncertainty (1 sigma) : "
+           << G4BestUnit(doseUncertainty, "Dose")
+           << G4endl;
+
+    G4cout << "Relative uncertainty : "
+           << relativeUncertainty
+           << " %" << G4endl;
+
+
+    // =================================================
+    // 9. PARTICLE STATISTICS
+    // =================================================
 
     G4cout << G4endl;
+    G4cout << "========== PARTICLE STATISTICS ========="
+           << G4endl;
 
-    G4cout << "Compton            : "
-           << fCompton.GetValue() << G4endl;
+    G4cout << "Primary gamma : "
+           << fPrimaryGamma.GetValue()
+           << G4endl;
 
-    G4cout << "Photoelectric      : "
-           << fPhotoelectric.GetValue() << G4endl;
+    G4cout << "Secondary gamma : "
+           << fSecondaryGamma.GetValue()
+           << G4endl;
 
-    G4cout << "Rayleigh           : "
-           << fRayleigh.GetValue() << G4endl;
+    G4cout << "Secondary electron : "
+           << fElectron.GetValue()
+           << G4endl;
+
+
+    // =================================================
+    // 10. Pb INTERACTION STATISTICS
+    // =================================================
+
+    G4cout << G4endl;
+    G4cout << "========= Pb INTERACTIONS =============="
+           << G4endl;
+
+    G4cout << "Compton : "
+           << fCompton.GetValue()
+           << G4endl;
+
+    G4cout << "Photoelectric : "
+           << fPhotoelectric.GetValue()
+           << G4endl;
+
+    G4cout << "Rayleigh : "
+           << fRayleigh.GetValue()
+           << G4endl;
 
     G4cout << "========================================"
            << G4endl << G4endl;
@@ -328,7 +430,7 @@ void RunAction::EndOfRunAction(const G4Run* run)
 
 
 // =====================================================
-// ADD ENERGY DEPOSITION
+// ADD EVENT ENERGY DEPOSITION
 // =====================================================
 
 void RunAction::AddEdep(G4double edep)
@@ -339,7 +441,7 @@ void RunAction::AddEdep(G4double edep)
 
 
 // =====================================================
-// FILL PRIMARY GAMMA DATA
+// RECORD PRIMARY GAMMA
 // =====================================================
 
 void RunAction::FillPrimaryEnergy(
@@ -353,35 +455,46 @@ void RunAction::FillPrimaryEnergy(
         G4AnalysisManager::Instance();
 
     analysisManager->FillNtupleIColumn(
-        1, 0, eventID);
+        1, 0, eventID
+    );
 
     analysisManager->FillNtupleDColumn(
-        1, 1, energy / keV);
+        1, 1, energy / keV
+    );
 
     analysisManager->FillNtupleIColumn(
-        1, 2, dwellIndex);
+        1, 2, dwellIndex
+    );
 
     analysisManager->FillNtupleDColumn(
-        1, 3, sourceZ / mm);
+        1, 3, sourceZ / mm
+    );
 
     analysisManager->AddNtupleRow(1);
 }
-    void RunAction::RecordEventDose(
+
+
+// =====================================================
+// RECORD EVENT ENERGY DEPOSITION
+// =====================================================
+
+void RunAction::RecordEventDose(
     G4int eventID,
-    G4double edep)
-    {
+    G4double edep
+)
+{
     auto analysisManager =
         G4AnalysisManager::Instance();
 
     analysisManager->FillNtupleIColumn(
-        2, 0, eventID
+        3, 0, eventID
     );
 
     analysisManager->FillNtupleDColumn(
-        2, 1, edep / keV
+        3, 1, edep / keV
     );
 
-    analysisManager->AddNtupleRow(2);
-    }
+    analysisManager->AddNtupleRow(3);
+}
 
 } // namespace B1
