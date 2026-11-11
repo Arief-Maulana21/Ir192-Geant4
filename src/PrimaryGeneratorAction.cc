@@ -1,19 +1,20 @@
 
 #include "PrimaryGeneratorAction.hh"
 
-#include "G4ParticleGun.hh"
-#include "G4Gamma.hh"
-#include "G4ThreeVector.hh"
-#include "G4SystemOfUnits.hh"
-#include "G4Event.hh"
-#include "Randomize.hh"
+#include "DetectorConstruction.hh"
 #include "RunAction.hh"
+
+#include "G4ParticleGun.hh"
+#include "G4ParticleTable.hh"
+#include "G4Gamma.hh"
+#include "G4Event.hh"
 #include "G4RunManager.hh"
+#include "G4SystemOfUnits.hh"
+#include "G4PhysicalConstants.hh"
+#include "G4RandomDirection.hh"
+#include "Randomize.hh"
 
-#include "Ir192Spectrum.hh"
-
-#include "G4AnalysisManager.hh"
-#include "G4ios.hh"
+#include <cmath>
 
 namespace B1
 {
@@ -24,30 +25,19 @@ namespace B1
 
 PrimaryGeneratorAction::PrimaryGeneratorAction()
 {
-    // Create one gamma particle per event
     fParticleGun = new G4ParticleGun(1);
 
-    // Define particle as gamma
-    fParticleGun->SetParticleDefinition(G4Gamma::Definition());
-
-    // Applicator center in World coordinates
-    // Must match DetectorConstruction.cc
-    fApplicatorPosition = G4ThreeVector(
-        0.,
-        0.,
-        5.0 * cm
+    fParticleGun->SetParticleDefinition(
+        G4Gamma::Definition()
     );
 
-    // Dwell positions relative to applicator center
-    fDwellPositions = {
-        -10.0 * mm,
-          0.0 * mm,
-        +10.0 * mm
-    };
+    fParticleGun->SetParticleEnergy(
+        316.508 * keV
+    );
 
-    // Load Ir-192 gamma energy spectrum
-    fSpectrum = new Ir192Spectrum();
-
+    fParticleGun->SetParticleMomentumDirection(
+        G4ThreeVector(0., 0., 1.)
+    );
 }
 
 
@@ -58,140 +48,118 @@ PrimaryGeneratorAction::PrimaryGeneratorAction()
 PrimaryGeneratorAction::~PrimaryGeneratorAction()
 {
     delete fParticleGun;
-    delete fSpectrum;
 }
 
 
 // =====================================================
-// GENERATE PRIMARY PARTICLES
+// GENERATE PRIMARIES
 // =====================================================
 
-void PrimaryGeneratorAction::GeneratePrimaries(G4Event* event)
+void PrimaryGeneratorAction::GeneratePrimaries(
+    G4Event* event
+)
 {
+    if (!event)
+        return;
 
-    // -------------------------------------------------
-    // 1. SELECT DWELL POSITION
-    // -------------------------------------------------
+    auto runManager =
+        G4RunManager::GetRunManager();
 
-    // Cycle through dwell positions:
-    // Event 0 -> Dwell 1
-    // Event 1 -> Dwell 2
-    // Event 2 -> Dwell 3
-    // Event 3 -> Dwell 1, and so on.
+    const auto detector =
+        static_cast<const DetectorConstruction*>(
+            runManager->GetUserDetectorConstruction()
+        );
 
-    auto runAction =
-    static_cast<const RunAction*>(
-        G4RunManager::GetRunManager()
-            ->GetUserRunAction()
+    // ================================================
+    // 1. SOURCE GEOMETRY
+    // ================================================
+
+    const G4ThreeVector sourceCenter =
+        detector->GetSourcePosition();
+
+    const G4double sourceRadius =
+        detector->GetSourceRadius();
+
+    const G4double sourceHalfLength =
+        detector->GetSourceHalfLength();
+
+    // ================================================
+    // 2. SAMPLE EMISSION POINT
+    // ================================================
+
+    // Uniform sampling inside a cylinder:
+    // r = R * sqrt(U)
+
+    const G4double r =
+        sourceRadius * std::sqrt(G4UniformRand());
+
+    const G4double phi =
+        twopi * G4UniformRand();
+
+    const G4double z =
+        sourceHalfLength *
+        (2.0 * G4UniformRand() - 1.0);
+
+    const G4ThreeVector localPosition(
+        r * std::cos(phi),
+        r * std::sin(phi),
+        z
     );
-    
-    G4int eventID = event->GetEventID();
 
-    G4int numberOfDwellPositions =
-        static_cast<G4int>(fDwellPositions.size());
+    const G4ThreeVector emissionPosition =
+        sourceCenter + localPosition;
 
-    G4int dwellIndex =
-        eventID % numberOfDwellPositions;
-
-    G4double dwellZ =
-        fDwellPositions[dwellIndex];
-
-
-    // -------------------------------------------------
-    // 2. CALCULATE SOURCE POSITION
-    // -------------------------------------------------
-
-    G4ThreeVector sourcePosition(
-        fApplicatorPosition.x(),
-        fApplicatorPosition.y(),
-        fApplicatorPosition.z() + dwellZ
+    fParticleGun->SetParticlePosition(
+        emissionPosition
     );
 
-    fParticleGun->SetParticlePosition(sourcePosition);
+    // ================================================
+    // 3. SAMPLE IR-192 GAMMA ENERGY
+    // ================================================
 
-
-    // -------------------------------------------------
-    // 3. SAMPLE GAMMA ENERGY FROM IR-192 SPECTRUM
-    // -------------------------------------------------
-
-    G4double energy = fSpectrum->SampleEnergy();
+    const G4double energy =
+        fSpectrum.SampleEnergy();
 
     fParticleGun->SetParticleEnergy(energy);
 
+    // ================================================
+    // 4. ISOTROPIC EMISSION DIRECTION
+    // ================================================
 
-    // -------------------------------------------------
-    // 4. SET ISOTROPIC GAMMA EMISSION DIRECTION
-    // -------------------------------------------------
+    const G4ThreeVector direction =
+        G4RandomDirection();
 
-    // Gamma emission is modeled as isotropic.
-    G4ThreeVector direction = G4RandomDirection();
-
-    fParticleGun->SetParticleMomentumDirection(direction);
-
-
-    // -------------------------------------------------
-    // 5. FILL ANALYSIS NTUPLE
-    // -------------------------------------------------
-
-    auto analysisManager = G4AnalysisManager::Instance();
-
-    analysisManager->FillNtupleIColumn(
-        1,
-        0,
-        eventID
+    fParticleGun->SetParticleMomentumDirection(
+        direction
     );
 
-    analysisManager->FillNtupleDColumn(
-        1,
-        1,
-        energy / keV
-    );
-
-    // Store dwell position index
-    analysisManager->FillNtupleIColumn(
-        1,
-        2,
-        dwellIndex
-    );
-
-    // Store source Z position in mm
-    analysisManager->FillNtupleDColumn(
-        1,
-        3,
-        sourcePosition.z() / mm
-    );
-
-    analysisManager->AddNtupleRow(1);
-
-
-    // -------------------------------------------------
-    // 6. GENERATE PRIMARY VERTEX
-    // -------------------------------------------------
+    // ================================================
+    // 5. GENERATE ONE GAMMA PER EVENT
+    // ================================================
 
     fParticleGun->GeneratePrimaryVertex(event);
 
+    // =====================================================
+    // 6. RECORD PRIMARY INFORMATION
+    // =====================================================
 
-    // -------------------------------------------------
-    // 7. PRINT INFORMATION
-    // -------------------------------------------------
+    const auto* constRunAction =
+    dynamic_cast<const RunAction*>(
+        runManager->GetUserRunAction()
+    );
 
-    if (eventID < 10)
+    if (constRunAction)
     {
-        G4cout << "Event ID       : " << eventID << G4endl;
+    auto* runAction =
+        const_cast<RunAction*>(constRunAction);
 
-        G4cout << "Dwell position : "
-               << dwellIndex + 1 << G4endl;
-
-        G4cout << "Source position: "
-               << sourcePosition / mm << " mm" << G4endl;
-
-        G4cout << "Gamma energy   : "
-               << energy / keV << " keV" << G4endl;
-
-        G4cout << "================================"
-               << G4endl;
+    runAction->FillPrimaryEnergy(
+        event->GetEventID(),
+        energy,
+        detector->GetDwellIndex(),
+        sourceCenter.z()
+    );
     }
-
 }
 
-}
+} // namespace B1

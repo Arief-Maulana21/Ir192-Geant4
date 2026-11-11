@@ -131,10 +131,24 @@ if (volumeName == "PbShield" &&
     particleName == "gamma")
     {
     auto runAction =
-        static_cast<RunAction*>(
+    const_cast<RunAction*>(
+        static_cast<const RunAction*>(
             G4RunManager::GetRunManager()
                 ->GetUserRunAction()
-        );
+        )
+    );
+    const G4VProcess* process =
+    step->GetPostStepPoint()
+        ->GetProcessDefinedStep();
+
+    G4String processName = "";
+
+    if (process)
+    {
+    processName = process->GetProcessName();
+    }
+
+
 
     if (runAction)
         {

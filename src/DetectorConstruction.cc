@@ -7,7 +7,6 @@
 #include "G4PVPlacement.hh"
 #include "G4NistManager.hh"
 #include "G4SystemOfUnits.hh"
-#include "G4ThreeVector.hh"
 #include "G4VisAttributes.hh"
 #include "G4Colour.hh"
 #include "G4ios.hh"
@@ -17,21 +16,29 @@ namespace B1
 
 G4VPhysicalVolume* DetectorConstruction::Construct()
 {
-
     // =====================================================
     // 1. MATERIALS
     // =====================================================
 
     auto nist = G4NistManager::Instance();
 
-    auto worldMat = nist->FindOrBuildMaterial("G4_AIR");
-    auto leadMat  = nist->FindOrBuildMaterial("G4_Pb");
-    auto siliconMat = nist->FindOrBuildMaterial("G4_Si");
+    auto worldMat =
+        nist->FindOrBuildMaterial("G4_AIR");
 
-    auto applicatorMat = nist->FindOrBuildMaterial("G4_POLYETHYLENE");
-    auto capsuleMat = nist->FindOrBuildMaterial("G4_STAINLESS-STEEL");
+    auto leadMat =
+        nist->FindOrBuildMaterial("G4_Pb");
 
-    auto iridiumMat = nist->FindOrBuildMaterial("G4_Ir");
+    auto siliconMat =
+        nist->FindOrBuildMaterial("G4_Si");
+
+    auto applicatorMat =
+        nist->FindOrBuildMaterial("G4_POLYETHYLENE");
+
+    auto capsuleMat =
+        nist->FindOrBuildMaterial("G4_STAINLESS-STEEL");
+
+    auto iridiumMat =
+        nist->FindOrBuildMaterial("G4_Ir");
 
 
     // =====================================================
@@ -64,36 +71,7 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
 
 
     // =====================================================
-    // 3. EXISTING LEAD SLAB
-    // =====================================================
-
-    auto solidLead = new G4Box(
-        "LeadSlab",
-        5.0 * cm,
-        5.0 * cm,
-        0.05 * cm
-    );
-
-    auto logicLead = new G4LogicalVolume(
-        solidLead,
-        leadMat,
-        "LeadSlab"
-    );
-
-    new G4PVPlacement(
-        nullptr,
-        G4ThreeVector(0., 0., 0.),
-        logicLead,
-        "LeadSlab",
-        logicWorld,
-        false,
-        0,
-        true
-    );
-
-
-    // =====================================================
-    // 4. DETECTOR A
+    // 3. DETECTOR A (TEMPORARY SCORING VOLUME)
     // =====================================================
 
     auto solidDetA = new G4Box(
@@ -122,7 +100,7 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
 
 
     // =====================================================
-    // 5. DETECTOR B
+    // 4. DETECTOR B (TEMPORARY TEST DETECTOR)
     // =====================================================
 
     auto solidDetB = new G4Box(
@@ -151,22 +129,18 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
 
 
     // =====================================================
-    // 6. APPLICATOR GEOMETRY
+    // 5. INTERSTITIAL APPLICATOR
     // =====================================================
 
-    // Applicator dimensions
-    G4double applicatorInnerRadius = 0.60 * mm;
-    G4double applicatorOuterRadius = 0.80 * mm;
-    G4double applicatorHalfLength  = 25.0 * mm;
+    const G4double applicatorInnerRadius =
+        0.60 * mm;
 
-    // Applicator position in World
-    G4ThreeVector applicatorPosition(
-        0.,
-        0.,
-        5.0 * cm
-    );
+    const G4double applicatorOuterRadius =
+        0.80 * mm;
 
-    // Hollow cylindrical applicator
+    const G4double applicatorHalfLength =
+        25.0 * mm;
+
     auto solidApplicator = new G4Tubs(
         "Applicator",
         applicatorInnerRadius,
@@ -184,7 +158,7 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
 
     new G4PVPlacement(
         nullptr,
-        applicatorPosition,
+        fApplicatorPosition,
         logicApplicator,
         "Applicator",
         logicWorld,
@@ -195,11 +169,14 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
 
 
     // =====================================================
-    // 7. SOURCE CAPSULE
+    // 6. STAINLESS STEEL SOURCE CAPSULE
     // =====================================================
 
-    G4double capsuleRadius = 0.45 * mm;
-    G4double capsuleHalfLength = 1.75 * mm;
+    const G4double capsuleRadius =
+        0.45 * mm;
+
+    const G4double capsuleHalfLength =
+        1.75 * mm;
 
     auto solidCapsule = new G4Tubs(
         "SourceCapsule",
@@ -216,11 +193,11 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
         "SourceCapsule"
     );
 
-    // Capsule is placed in the hollow channel of applicator.
-    // It is a daughter of World, not a daughter of applicator.
+    // The capsule occupies the hollow applicator
+    // channel. Both are daughters of World.
     new G4PVPlacement(
         nullptr,
-        applicatorPosition,
+        fSourcePosition,
         logicCapsule,
         "SourceCapsule",
         logicWorld,
@@ -231,17 +208,14 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
 
 
     // =====================================================
-    // 8. ACTIVE IR-192 SOURCE
+    // 7. ACTIVE IR-192 SOURCE
     // =====================================================
-
-    G4double sourceRadius = 0.30 * mm;
-    G4double sourceHalfLength = 1.50 * mm;
 
     auto solidSource = new G4Tubs(
         "Ir192Source",
         0.,
-        sourceRadius,
-        sourceHalfLength,
+        fSourceRadius,
+        fSourceHalfLength,
         0. * deg,
         360. * deg
     );
@@ -252,7 +226,8 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
         "Ir192Source"
     );
 
-    // Active Ir-192 is inside the source capsule.
+    // Daughter of SourceCapsule:
+    // its position is LOCAL to the capsule.
     new G4PVPlacement(
         nullptr,
         G4ThreeVector(0., 0., 0.),
@@ -266,35 +241,30 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
 
 
     // =====================================================
-    // 9. FIXED LOCALIZED LEAD SHIELDING PLATE
+    // 8. FIXED LOCALIZED Pb SHIELD
     // =====================================================
 
-    // Shield dimensions
-    G4double shieldThickness = 1.0 * mm;
-    G4double shieldHalfWidth = 5.0 * mm;
-    G4double shieldHalfLength = 5.0 * mm;
+    const G4double shieldThickness =
+        1.0 * mm;
 
-    // Small gap between applicator and Pb plate
-    G4double shieldGap = 0.10 * mm;
+    const G4double shieldHalfWidth =
+        5.0 * mm;
 
-    // Position of shield relative to applicator axis
-    G4double shieldX =
+    const G4double shieldHalfLength =
+        5.0 * mm;
+
+    const G4double shieldGap =
+        0.10 * mm;
+
+    const G4double shieldX =
         applicatorOuterRadius
         + shieldGap
         + shieldThickness / 2.0;
 
-    // Shield is located around the central dwell position.
-    G4double shieldDwellZ = 0.0 * mm;
-
-    G4ThreeVector shieldPosition(
-        shieldX,
-        0.,
-        shieldDwellZ
-    );
-
-    // Convert local shield position to World coordinates
-    G4ThreeVector shieldWorldPosition =
-        applicatorPosition + shieldPosition;
+    // Pb shield remains centered at z = 50 mm.
+    const G4ThreeVector shieldPosition =
+        fApplicatorPosition
+        + G4ThreeVector(shieldX, 0., 0.);
 
     auto solidShield = new G4Box(
         "PbShield",
@@ -309,11 +279,9 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
         "PbShield"
     );
 
-    // Fixed plate: placed once in World.
-    // It does not move when the source changes dwell position.
     new G4PVPlacement(
         nullptr,
-        shieldWorldPosition,
+        shieldPosition,
         logicShield,
         "PbShield",
         logicWorld,
@@ -324,18 +292,12 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
 
 
     // =====================================================
-    // 10. VISUALIZATION
+    // 9. VISUALIZATION
     // =====================================================
 
     auto worldVis = new G4VisAttributes();
     worldVis->SetVisibility(false);
     logicWorld->SetVisAttributes(worldVis);
-
-    auto leadVis = new G4VisAttributes(
-        G4Colour(0.35, 0.35, 0.35)
-    );
-    leadVis->SetVisibility(true);
-    logicLead->SetVisAttributes(leadVis);
 
     auto detAVis = new G4VisAttributes(
         G4Colour(0.0, 0.0, 1.0)
@@ -353,7 +315,9 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
         G4Colour(0.0, 1.0, 1.0)
     );
     applicatorVis->SetVisibility(true);
-    logicApplicator->SetVisAttributes(applicatorVis);
+    logicApplicator->SetVisAttributes(
+        applicatorVis
+    );
 
     auto capsuleVis = new G4VisAttributes(
         G4Colour(1.0, 0.5, 0.0)
@@ -368,51 +332,62 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
     logicSource->SetVisAttributes(sourceVis);
 
     auto shieldVis = new G4VisAttributes(
-        G4Colour(0.3, 0.3, 0.3)
+        G4Colour(0.45, 0.45, 0.45)
     );
     shieldVis->SetVisibility(true);
     logicShield->SetVisAttributes(shieldVis);
 
 
     // =====================================================
-    // 11. SCORING VOLUME
+    // 10. SCORING VOLUME
     // =====================================================
 
     fScoringVolume = logicDetA;
 
 
     // =====================================================
-    // 12. GEOMETRY INFORMATION
+    // 11. GEOMETRY INFORMATION
     // =====================================================
 
     G4cout << G4endl;
-    G4cout << "========================================" << G4endl;
-    G4cout << "       IR-192 HDR GEOMETRY" << G4endl;
-    G4cout << "========================================" << G4endl;
+    G4cout << "========================================"
+           << G4endl;
+    G4cout << "     IR-192 HDR SINGLE DWELL MODEL"
+           << G4endl;
+    G4cout << "========================================"
+           << G4endl;
 
-    G4cout << "Applicator position : "
-           << applicatorPosition / mm << " mm" << G4endl;
+    G4cout << "Applicator center (mm): "
+           << fApplicatorPosition / mm
+           << G4endl;
 
-    G4cout << "Applicator inner radius : "
-           << applicatorInnerRadius / mm << " mm" << G4endl;
+    G4cout << "Source center (mm): "
+           << fSourcePosition / mm
+           << G4endl;
 
-    G4cout << "Applicator outer radius : "
-           << applicatorOuterRadius / mm << " mm" << G4endl;
+    G4cout << "Source radius (mm): "
+           << fSourceRadius / mm
+           << G4endl;
 
-    G4cout << "Pb shield position : "
-           << shieldWorldPosition / mm << " mm" << G4endl;
+    G4cout << "Source half-length (mm): "
+           << fSourceHalfLength / mm
+           << G4endl;
 
-    G4cout << "Pb shield thickness : "
-           << shieldThickness / mm << " mm" << G4endl;
+    G4cout << "Pb shield center (mm): "
+           << shieldPosition / mm
+           << G4endl;
 
-    G4cout << "Scoring volume : DetectorA" << G4endl;
+    G4cout << "Pb thickness (mm): "
+           << shieldThickness / mm
+           << G4endl;
 
-    G4cout << "========================================" << G4endl;
-    G4cout << G4endl;
+    G4cout << "Scoring volume: DetectorA"
+           << G4endl;
 
+    G4cout << "========================================"
+           << G4endl;
 
     return physWorld;
-
 }
 
-}
+} // namespace B1

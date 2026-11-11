@@ -1,28 +1,30 @@
 
-#ifndef PrimaryGeneratorAction_h
-#define PrimaryGeneratorAction_h
+#ifndef B1PrimaryGeneratorAction_h
+#define B1PrimaryGeneratorAction_h 1
 
 #include "G4VUserPrimaryGeneratorAction.hh"
-#include "G4ParticleGun.hh"
-#include "globals.hh"
 #include "G4ThreeVector.hh"
+#include "globals.hh"
 
-#include <vector>
+#include "Ir192Spectrum.hh"
 
+class G4ParticleGun;
 class G4Event;
-class Ir192Spectrum;
 
 namespace B1
 {
 
-class PrimaryGeneratorAction : public G4VUserPrimaryGeneratorAction
+class PrimaryGeneratorAction
+    : public G4VUserPrimaryGeneratorAction
 {
 public:
-
     PrimaryGeneratorAction();
+
     ~PrimaryGeneratorAction() override;
 
-    void GeneratePrimaries(G4Event* event) override;
+    void GeneratePrimaries(
+        G4Event* event
+    ) override;
 
     const G4ParticleGun* GetParticleGun() const
     {
@@ -30,18 +32,11 @@ public:
     }
 
 private:
-
     G4ParticleGun* fParticleGun = nullptr;
-    Ir192Spectrum* fSpectrum = nullptr;
 
-    // Dwell positions relative to the applicator center
-    std::vector<G4double> fDwellPositions;
-
-    // Position of the applicator center in World coordinates
-    G4ThreeVector fApplicatorPosition;
-
+    Ir192Spectrum fSpectrum;
 };
 
-}
+} // namespace B1
 
 #endif

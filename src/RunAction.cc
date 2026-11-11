@@ -193,6 +193,17 @@ void RunAction::EndOfRunAction(const G4Run* run)
     // ENERGY DEPOSITION AND DOSE
     // =================================================
 
+    const auto* detector = 
+        static_cast<const 
+    DetectorConstruction*>(G4RunManager :: GetRunManager()
+    ->GetUserDetectorConstruction());
+
+    auto* scoringvolume = detector ->GetScoringVolume();
+
+    G4double mass = scoringvolume->GetMass();
+    
+    
+    
     G4double edep = fEdep.GetValue();
     G4double edep2 = fEdep2.GetValue();
 

@@ -1,0 +1,13 @@
+========== Ir192 Simulation ==========
+Entries : 142030
+Electrons : 83559
+Gammas : 364
+Mean electron energy = 116.796
+Mean deposited energy = 39.5431
+Electron Yield = 143.802 %
+Gamma Yield = 0.626431 %
+
+========== Primary Dose ==========
+Primary interactions : 58107
+Mean Primary Dose (keV) : 0
+Maximum Primary Dose (keV) : 1.16667
