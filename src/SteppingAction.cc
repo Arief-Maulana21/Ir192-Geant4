@@ -3,6 +3,7 @@
 #include "DetectorConstruction.hh"
 #include "EventAction.hh"
 #include "RunAction.hh"
+#include "TrackInformation.hh"
 
 #include "G4Track.hh"
 #include "G4Step.hh"
@@ -124,50 +125,6 @@ void SteppingAction::UserSteppingAction(const G4Step* step)
 
 
     // =================================================
-    // COUNT GAMMA INTERACTIONS IN Pb
-    // =================================================
-
-if (volumeName == "PbShield" &&
-    particleName == "gamma")
-    {
-    auto runAction =
-    const_cast<RunAction*>(
-        static_cast<const RunAction*>(
-            G4RunManager::GetRunManager()
-                ->GetUserRunAction()
-        )
-    );
-    const G4VProcess* process =
-    step->GetPostStepPoint()
-        ->GetProcessDefinedStep();
-
-    G4String processName = "";
-
-    if (process)
-    {
-    processName = process->GetProcessName();
-    }
-
-
-
-    if (runAction)
-        {
-        if (processName == "compt")
-            {
-            runAction->AddCompton();
-            }
-        else if (processName == "phot")
-            {
-            runAction->AddPhotoelectric();
-            }
-        else if (processName == "Rayl")
-            {
-            runAction->AddRayleigh();
-            }
-        }
-    }
-
-    // =================================================
     // 6. STEP PROCESS
     // =================================================
 
@@ -178,6 +135,41 @@ if (volumeName == "PbShield" &&
         processName =
             postStepPoint->GetProcessDefinedStep()
                 ->GetProcessName();
+    }
+
+    // Set history on the current track before downstream scoring.
+    // Also tag particles created in THIS step, including those from
+    // electron interactions in Pb (not just gamma interactions).
+    const G4bool isPbInteraction =
+        (volumeName == "PbShield" &&
+         processName != "Transportation" &&
+         processName != "CoupledTransportation" &&
+         processName != "StepLimiter" &&
+         processName != "UserSpecialCut" &&
+         processName != "None");
+
+    auto* trackInfo = dynamic_cast<TrackInformation*>(
+        track->GetUserInformation());
+    if (isPbInteraction && trackInfo)
+        trackInfo->MarkPbHistory();
+
+    if (isPbInteraction)
+    {
+        const auto* children = step->GetSecondaryInCurrentStep();
+        if (children)
+        {
+            for (const auto* childConst : *children)
+            {
+                auto* child = const_cast<G4Track*>(childConst);
+                if (!child) continue;
+                auto* childInfo = dynamic_cast<TrackInformation*>(
+                    child->GetUserInformation());
+                if (!childInfo)
+                    child->SetUserInformation(new TrackInformation(true));
+                else
+                    childInfo->MarkPbHistory();
+            }
+        }
     }
 
     // Exclude transportation-only steps from logging.

@@ -23,6 +23,10 @@ public:
         const G4Track* track
     ) override;
 
+    void PostUserTrackingAction(
+        const G4Track* track
+    ) override;
+
 private:
 
     RunAction* fRunAction = nullptr;
