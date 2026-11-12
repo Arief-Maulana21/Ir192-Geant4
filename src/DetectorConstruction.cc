@@ -28,8 +28,10 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
     auto leadMat =
         nist->FindOrBuildMaterial("G4_Pb");
 
-    auto siliconMat =
-        nist->FindOrBuildMaterial("G4_Si");
+    // Preliminary homogeneous tissue surrogates, not CT-derived anatomy.
+    auto tissueMat = nist->FindOrBuildMaterial("G4_TISSUE_SOFT_ICRP");
+    auto boneMat = nist->FindOrBuildMaterial("G4_BONE_COMPACT_ICRU");
+    auto waterMat = nist->FindOrBuildMaterial("G4_WATER");
 
     auto applicatorMat =
         nist->FindOrBuildMaterial("G4_POLYETHYLENE");
@@ -71,62 +73,64 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
 
 
     // =====================================================
-    // 3. DETECTOR A (TEMPORARY SCORING VOLUME)
+    // 3. PRELIMINARY HEAD-AND-NECK PHANTOM
     // =====================================================
+    // Coordinates in World frame (phantom centered at origin).
+    // Deliberately simplified non-patient-specific surrogate geometry.
+    auto solidPhantom = new G4Box("HeadNeckPhantom", 10*cm, 10*cm, 12*cm);
+    auto logicPhantom = new G4LogicalVolume(
+        solidPhantom, waterMat, "HeadNeckPhantom");
+    new G4PVPlacement(nullptr, G4ThreeVector(), logicPhantom,
+                      "HeadNeckPhantom", logicWorld, false, 0, true);
 
-    auto solidDetA = new G4Box(
-        "DetectorA",
-        2.0 * cm,
-        2.0 * cm,
-        0.25 * cm
-    );
+    // Organ scoring candidates are separate, non-overlapping daughters.
+    // The applicator axis is (x=0,y=0), and Pb is on its +X side.
+    auto addOrgan = [&](const G4String& name,
+                        G4double hx, G4double hy, G4double hz,
+                        const G4ThreeVector& center,
+                        G4Material* material,
+                        const G4Colour& color) -> G4LogicalVolume*
+    {
+        auto solid = new G4Box(name, hx, hy, hz);
+        auto logical = new G4LogicalVolume(solid, material, name);
+        new G4PVPlacement(nullptr, center, logical, name,
+                          logicPhantom, false, 0, true);
+        auto* vis = new G4VisAttributes(color);
+        vis->SetVisibility(true);
+        vis->SetForceSolid(true);
+        logical->SetVisAttributes(vis);
+        return logical;
+    };
 
-    auto logicDetA = new G4LogicalVolume(
-        solidDetA,
-        siliconMat,
-        "DetectorA"
-    );
+    // Tongue is offset from the catheter axis to avoid overlapping
+    // the catheter/source; this is NOT an anatomical HDR implant model.
+    auto logicTongue = addOrgan(
+        "Tongue", 25*mm, 10*mm, 18*mm,
+        G4ThreeVector(0, -15*mm, 50*mm), tissueMat,
+        G4Colour(0.95, 0.35, 0.45));
 
-    new G4PVPlacement(
-        nullptr,
-        G4ThreeVector(0., 0., 2.0 * cm),
-        logicDetA,
-        "DetectorA",
-        logicWorld,
-        false,
-        0,
-        true
-    );
+    addOrgan("OralCavity", 25*mm, 6*mm, 18*mm,
+             G4ThreeVector(0, -34*mm, 50*mm), tissueMat,
+             G4Colour(0.95, 0.75, 0.35));
 
+    addOrgan("Mandible", 35*mm, 8*mm, 20*mm,
+             G4ThreeVector(0, -55*mm, 50*mm), boneMat,
+             G4Colour(0.95, 0.95, 0.85));
 
-    // =====================================================
-    // 4. DETECTOR B (TEMPORARY TEST DETECTOR)
-    // =====================================================
+    addOrgan("SpinalCord", 7*mm, 8*mm, 25*mm,
+             G4ThreeVector(0, 50*mm, 50*mm), tissueMat,
+             G4Colour(0.55, 0.55, 0.95));
 
-    auto solidDetB = new G4Box(
-        "DetectorB",
-        5.0 * cm,
-        5.0 * cm,
-        0.5 * cm
-    );
+    addOrgan("SalivaryLeft", 12*mm, 12*mm, 15*mm,
+             G4ThreeVector(-55*mm, 12*mm, 50*mm), tissueMat,
+             G4Colour(0.35, 0.8, 0.45));
 
-    auto logicDetB = new G4LogicalVolume(
-        solidDetB,
-        siliconMat,
-        "DetectorB"
-    );
+    addOrgan("SalivaryRight", 12*mm, 12*mm, 15*mm,
+             G4ThreeVector(55*mm, 12*mm, 50*mm), tissueMat,
+             G4Colour(0.35, 0.8, 0.45));
 
-    new G4PVPlacement(
-        nullptr,
-        G4ThreeVector(10.0 * cm, 0., 0.),
-        logicDetB,
-        "DetectorB",
-        logicWorld,
-        false,
-        0,
-        true
-    );
-
+    // Existing single-volume dose scoring now targets Tongue.
+    fScoringVolume = logicTongue;
 
     // =====================================================
     // 5. INTERSTITIAL APPLICATOR
@@ -161,7 +165,7 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
         fApplicatorPosition,
         logicApplicator,
         "Applicator",
-        logicWorld,
+        logicPhantom,
         false,
         0,
         true
@@ -200,7 +204,7 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
         fSourcePosition,
         logicCapsule,
         "SourceCapsule",
-        logicWorld,
+        logicPhantom,
         false,
         0,
         true
@@ -284,7 +288,7 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
         shieldPosition,
         logicShield,
         "PbShield",
-        logicWorld,
+        logicPhantom,
         false,
         0,
         true
@@ -299,17 +303,10 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
     worldVis->SetVisibility(false);
     logicWorld->SetVisAttributes(worldVis);
 
-    auto detAVis = new G4VisAttributes(
-        G4Colour(0.0, 0.0, 1.0)
-    );
-    detAVis->SetVisibility(true);
-    logicDetA->SetVisAttributes(detAVis);
-
-    auto detBVis = new G4VisAttributes(
-        G4Colour(0.0, 1.0, 0.0)
-    );
-    detBVis->SetVisibility(true);
-    logicDetB->SetVisAttributes(detBVis);
+    auto phantomVis = new G4VisAttributes(G4Colour(0.4, 0.7, 0.9, 0.08));
+    phantomVis->SetVisibility(true);
+    phantomVis->SetForceWireframe(true);
+    logicPhantom->SetVisAttributes(phantomVis);
 
     auto applicatorVis = new G4VisAttributes(
         G4Colour(0.0, 1.0, 1.0)
@@ -342,7 +339,7 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
     // 10. SCORING VOLUME
     // =====================================================
 
-    fScoringVolume = logicDetA;
+    fScoringVolume = logicTongue;
 
 
     // =====================================================
@@ -381,7 +378,7 @@ G4VPhysicalVolume* DetectorConstruction::Construct()
            << shieldThickness / mm
            << G4endl;
 
-    G4cout << "Scoring volume: DetectorA"
+    G4cout << "Scoring volume: Tongue (preliminary surrogate)"
            << G4endl;
 
     G4cout << "========================================"
