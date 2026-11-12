@@ -23,6 +23,9 @@ public:
     G4double edep
     );
 
+    void AddHistoryEdep(G4double pb, G4double noPb);
+    void RecordHistoryEventDose(G4int eventID, G4double pb, G4double noPb);
+
     void BeginOfRunAction(const G4Run*) override;
     void EndOfRunAction(const G4Run*) override;
 
@@ -51,6 +54,10 @@ private:
 
     G4Accumulable<G4double> fEdep{0.};
     G4Accumulable<G4double> fEdep2{0.};
+    G4Accumulable<G4double> fPbEdep{0.};
+    G4Accumulable<G4double> fPbEdep2{0.};
+    G4Accumulable<G4double> fNoPbEdep{0.};
+    G4Accumulable<G4double> fNoPbEdep2{0.};
 
     G4Accumulable<G4int> fPrimaryGamma{0};
     G4Accumulable<G4int> fSecondaryGamma{0};

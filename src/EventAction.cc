@@ -23,6 +23,8 @@ void EventAction::BeginOfEventAction(
 )
 {
     fEdep = 0.;
+    fEdepPb = 0.;
+    fEdepNoPb = 0.;
 }
 
 // =====================================================
@@ -38,11 +40,16 @@ void EventAction::EndOfEventAction(
 
     // Accumulate total energy deposition
     fRunAction->AddEdep(fEdep);
+    fRunAction->AddHistoryEdep(fEdepPb, fEdepNoPb);
 
     // Record energy deposition for this event
     fRunAction->RecordEventDose(
         event->GetEventID(),
         fEdep
+    );
+
+    fRunAction->RecordHistoryEventDose(
+        event->GetEventID(), fEdepPb, fEdepNoPb
     );
 }
 

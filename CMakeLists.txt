@@ -37,16 +37,10 @@ target_link_libraries(Ir192_Pb
 #========================================================
 # Copy macro files
 #========================================================
-set(MACRO_FILES
-    run.mac
-)
-
+file(GLOB MACRO_FILES "${PROJECT_SOURCE_DIR}/macros/*.mac")
 foreach(file ${MACRO_FILES})
-    configure_file(
-        ${PROJECT_SOURCE_DIR}/${file}
-        ${PROJECT_BINARY_DIR}/${file}
-        COPYONLY
-    )
+    get_filename_component(filename ${file} NAME)
+    configure_file(${file} ${PROJECT_BINARY_DIR}/${filename} COPYONLY)
 endforeach()
 
 #========================================================

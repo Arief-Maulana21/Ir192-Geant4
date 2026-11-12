@@ -22,9 +22,11 @@ public:
     void BeginOfEventAction(const G4Event* event) override;
     void EndOfEventAction(const G4Event* event) override;
 
-    void AddEdep(G4double edep)
+    void AddEdep(G4double edep, G4bool pbHistory)
     {
         fEdep += edep;
+        if (pbHistory) fEdepPb += edep;
+        else fEdepNoPb += edep;
     }
 
 private:
@@ -33,6 +35,8 @@ private:
 
     // Total energy deposition in scoring volume per event
     G4double fEdep = 0.;
+    G4double fEdepPb = 0.;
+    G4double fEdepNoPb = 0.;
 
 };
 

@@ -84,10 +84,6 @@ void SteppingAction::UserSteppingAction(const G4Step* step)
     // Only score deposited energy in DetectorA.
     // This is independent of the ROOT step logging.
 
-    if (logicalVolume == fScoringVolume)
-    {
-        fEventAction->AddEdep(edepStep);
-    }
 
 
     // =================================================
@@ -170,6 +166,14 @@ void SteppingAction::UserSteppingAction(const G4Step* step)
                     childInfo->MarkPbHistory();
             }
         }
+    }
+
+    // Score ALL particle types, including transportation steps.
+    // Marking history happens first so the current step is classified correctly.
+    if (logicalVolume == fScoringVolume && edepStep > 0.0 && fEventAction)
+    {
+        const G4bool pbHistory = trackInfo && trackInfo->HasPbHistory();
+        fEventAction->AddEdep(edepStep, pbHistory);
     }
 
     // Exclude transportation-only steps from logging.

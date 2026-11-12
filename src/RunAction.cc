@@ -67,6 +67,10 @@ RunAction::RunAction()
 
     accumulableManager->Register(fEdep);
     accumulableManager->Register(fEdep2);
+    accumulableManager->Register(fPbEdep);
+    accumulableManager->Register(fPbEdep2);
+    accumulableManager->Register(fNoPbEdep);
+    accumulableManager->Register(fNoPbEdep2);
 
     accumulableManager->Register(fPrimaryGamma);
     accumulableManager->Register(fSecondaryGamma);
@@ -176,6 +180,14 @@ RunAction::RunAction()
     analysisManager->CreateNtupleIColumn("EventID");  // 0
     analysisManager->CreateNtupleDColumn("Edep_keV"); // 1
 
+    analysisManager->FinishNtuple();
+
+    // Ntuple ID 4: event-level energy split (keV).
+    analysisManager->CreateNtuple("HistoryEventDose", "Per-event scoring-volume energy by Pb history");
+    analysisManager->CreateNtupleIColumn("EventID");       // 0
+    analysisManager->CreateNtupleDColumn("EdepPb_keV");    // 1
+    analysisManager->CreateNtupleDColumn("EdepNoPb_keV");  // 2
+    analysisManager->CreateNtupleDColumn("EdepTotal_keV");// 3
     analysisManager->FinishNtuple();
 }
 
@@ -296,6 +308,14 @@ void RunAction::EndOfRunAction(const G4Run* run)
     const G4double edep2 =
         fEdep2.GetValue();
 
+    const G4double edepPb = fPbEdep.GetValue();
+    const G4double edepNoPb = fNoPbEdep.GetValue();
+    auto sigmaSum = [nofEvents](G4double sum, G4double sum2) {
+        if (nofEvents <= 1) return 0.0;
+        return std::sqrt(std::max(0.0,
+            (sum2 - sum * sum / nofEvents) * nofEvents / (nofEvents - 1.0)));
+    };
+
 
     // =================================================
     // 6. STATISTICAL UNCERTAINTY
@@ -368,6 +388,18 @@ void RunAction::EndOfRunAction(const G4Run* run)
 
     G4cout << "Total deposited energy : "
            << G4BestUnit(edep, "Energy")
+           << G4endl;
+
+    G4cout << "Pb-history dose : "
+           << G4BestUnit(edepPb / mass, "Dose")
+           << " +/- " << G4BestUnit(sigmaSum(edepPb, fPbEdep2.GetValue()) / mass, "Dose")
+           << G4endl;
+    G4cout << "No-Pb-history dose : "
+           << G4BestUnit(edepNoPb / mass, "Dose")
+           << " +/- " << G4BestUnit(sigmaSum(edepNoPb, fNoPbEdep2.GetValue()) / mass, "Dose")
+           << G4endl;
+    G4cout << "Energy split residual : "
+           << G4BestUnit(edep - edepPb - edepNoPb, "Energy")
            << G4endl;
 
     G4cout << "Absorbed dose : "
@@ -495,6 +527,25 @@ void RunAction::RecordEventDose(
     );
 
     analysisManager->AddNtupleRow(3);
+}
+
+
+void RunAction::AddHistoryEdep(G4double pb, G4double noPb)
+{
+    fPbEdep += pb;
+    fPbEdep2 += pb * pb;
+    fNoPbEdep += noPb;
+    fNoPbEdep2 += noPb * noPb;
+}
+
+void RunAction::RecordHistoryEventDose(G4int eventID, G4double pb, G4double noPb)
+{
+    auto* analysis = G4AnalysisManager::Instance();
+    analysis->FillNtupleIColumn(4, 0, eventID);
+    analysis->FillNtupleDColumn(4, 1, pb / keV);
+    analysis->FillNtupleDColumn(4, 2, noPb / keV);
+    analysis->FillNtupleDColumn(4, 3, (pb + noPb) / keV);
+    analysis->AddNtupleRow(4);
 }
 
 } // namespace B1
