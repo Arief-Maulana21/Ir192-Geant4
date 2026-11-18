@@ -1,8 +1,8 @@
-
 #include "DetectorConstruction.hh"
 
 #include "G4Box.hh"
 #include "G4Tubs.hh"
+#include "G4SubtractionSolid.hh"
 #include "G4LogicalVolume.hh"
 #include "G4PVPlacement.hh"
 #include "G4NistManager.hh"
@@ -11,380 +11,142 @@
 #include "G4Colour.hh"
 #include "G4ios.hh"
 
-namespace B1
-{
+namespace B1 {
 
 G4VPhysicalVolume* DetectorConstruction::Construct()
 {
-    // =====================================================
-    // 1. MATERIALS
-    // =====================================================
+    auto* nist = G4NistManager::Instance();
+    auto* air = nist->FindOrBuildMaterial("G4_AIR");
+    auto* water = nist->FindOrBuildMaterial("G4_WATER");
+    auto* soft = nist->FindOrBuildMaterial("G4_TISSUE_SOFT_ICRP");
+    auto* bone = nist->FindOrBuildMaterial("G4_BONE_COMPACT_ICRU");
+    auto* polyethylene = nist->FindOrBuildMaterial("G4_POLYETHYLENE");
+    auto* steel = nist->FindOrBuildMaterial("G4_STAINLESS-STEEL");
+    auto* iridium = nist->FindOrBuildMaterial("G4_Ir");
+    auto* lead = nist->FindOrBuildMaterial("G4_Pb");
 
-    auto nist = G4NistManager::Instance();
+    auto* worldSolid = new G4Box("World", 25*cm, 25*cm, 25*cm);
+    auto* worldLV = new G4LogicalVolume(worldSolid, air, "World");
+    auto* worldPV = new G4PVPlacement(nullptr, {}, worldLV, "World", nullptr,
+                                      false, 0, true);
+    worldLV->SetVisAttributes(G4VisAttributes::GetInvisible());
 
-    auto worldMat =
-        nist->FindOrBuildMaterial("G4_AIR");
+    auto* phantomSolid = new G4Box("HeadNeckPhantom", 10*cm, 10*cm, 12*cm);
+    auto* phantomLV = new G4LogicalVolume(phantomSolid, water, "HeadNeckPhantom");
+    new G4PVPlacement(nullptr, {}, phantomLV, "HeadNeckPhantom", worldLV,
+                      false, 0, true);
+    auto* phantomVis = new G4VisAttributes(G4Colour(0.4, 0.7, 0.9, 0.1));
+    phantomVis->SetForceWireframe(true);
+    phantomLV->SetVisAttributes(phantomVis);
 
-    auto leadMat =
-        nist->FindOrBuildMaterial("G4_Pb");
+    // Simplified surrogate geometry; all positions are in the phantom/world frame.
+    // Tongue: x[-25,25], y[-20,20], z[32,68] mm.
+    // Catheter axis: x=y=0, z[25,75] mm, inside tongue over z[32,68].
+    const G4double catheterInner = 0.60*mm;
+    const G4double catheterOuter = 0.80*mm;
+    const G4double catheterHalfLength = 25.0*mm;
+    const G4double capsuleRadius = 0.45*mm;
+    const G4double capsuleHalfLength = 1.75*mm;
 
-    // Preliminary homogeneous tissue surrogates, not CT-derived anatomy.
-    auto tissueMat = nist->FindOrBuildMaterial("G4_TISSUE_SOFT_ICRP");
-    auto boneMat = nist->FindOrBuildMaterial("G4_BONE_COMPACT_ICRU");
-    auto waterMat = nist->FindOrBuildMaterial("G4_WATER");
+    // Fixed Pb plate on +X side of catheter, independent of dwell position.
+    const G4double pbThickness = 1.0*mm;
+    const G4double pbHalfWidth = 5.0*mm;
+    const G4double pbHalfLength = 5.0*mm;
+    const G4double pbGap = 0.10*mm;
+    const G4double pbX = catheterOuter + pbGap + pbThickness/2.;
+    const G4ThreeVector pbPosition = fApplicatorPosition + G4ThreeVector(pbX, 0, 0);
 
-    auto applicatorMat =
-        nist->FindOrBuildMaterial("G4_POLYETHYLENE");
+    // Subtract catheter clearance and Pb plate from the tongue tissue.
+    // This avoids overlapping sibling physical volumes while keeping tissue
+    // around the interstitial source. Clearance is a geometry tolerance only.
+    const G4double clearance = 0.01*mm;
+    auto* tongueBox = new G4Box("TongueBase", 25*mm, 20*mm, 18*mm);
+    auto* catheterCut = new G4Tubs("TongueCatheterCut", 0,
+                                    catheterOuter + clearance,
+                                    catheterHalfLength + clearance,
+                                    0*deg, 360*deg);
+    auto* tongueWithoutCatheter = new G4SubtractionSolid(
+        "TongueWithoutCatheter", tongueBox, catheterCut, nullptr,
+        G4ThreeVector(0,0,0));
+    auto* shieldCut = new G4Box("TongueShieldCut",
+                                pbThickness/2. + clearance,
+                                pbHalfWidth + clearance,
+                                pbHalfLength + clearance);
+    auto* tongueSolid = new G4SubtractionSolid(
+        "Tongue", tongueWithoutCatheter, shieldCut, nullptr,
+        G4ThreeVector(pbX,0,0));
+    auto* tongueLV = new G4LogicalVolume(tongueSolid, soft, "Tongue");
+    new G4PVPlacement(nullptr, fApplicatorPosition, tongueLV, "Tongue",
+                      phantomLV, false, 0, true);
+    fOrganVolumes[0] = tongueLV;
+    fScoringVolume = tongueLV;
 
-    auto capsuleMat =
-        nist->FindOrBuildMaterial("G4_STAINLESS-STEEL");
-
-    auto iridiumMat =
-        nist->FindOrBuildMaterial("G4_Ir");
-
-
-    // =====================================================
-    // 2. WORLD
-    // =====================================================
-
-    auto solidWorld = new G4Box(
-        "World",
-        25.0 * cm,
-        25.0 * cm,
-        25.0 * cm
-    );
-
-    auto logicWorld = new G4LogicalVolume(
-        solidWorld,
-        worldMat,
-        "World"
-    );
-
-    auto physWorld = new G4PVPlacement(
-        nullptr,
-        G4ThreeVector(),
-        logicWorld,
-        "World",
-        nullptr,
-        false,
-        0,
-        true
-    );
-
-
-    // =====================================================
-    // 3. PRELIMINARY HEAD-AND-NECK PHANTOM
-    // =====================================================
-    // Coordinates in World frame (phantom centered at origin).
-    // Deliberately simplified non-patient-specific surrogate geometry.
-    auto solidPhantom = new G4Box("HeadNeckPhantom", 10*cm, 10*cm, 12*cm);
-    auto logicPhantom = new G4LogicalVolume(
-        solidPhantom, waterMat, "HeadNeckPhantom");
-    new G4PVPlacement(nullptr, G4ThreeVector(), logicPhantom,
-                      "HeadNeckPhantom", logicWorld, false, 0, true);
-
-    // Organ scoring candidates are separate, non-overlapping daughters.
-    // The applicator axis is (x=0,y=0), and Pb is on its +X side.
-    auto addOrgan = [&](const G4String& name,
+    auto addOrgan = [&](G4int id, const G4String& name,
                         G4double hx, G4double hy, G4double hz,
-                        const G4ThreeVector& center,
-                        G4Material* material,
-                        const G4Colour& color) -> G4LogicalVolume*
-    {
-        auto solid = new G4Box(name, hx, hy, hz);
-        auto logical = new G4LogicalVolume(solid, material, name);
-        new G4PVPlacement(nullptr, center, logical, name,
-                          logicPhantom, false, 0, true);
-        auto* vis = new G4VisAttributes(color);
-        vis->SetVisibility(true);
+                        const G4ThreeVector& center, G4Material* material,
+                        const G4Colour& colour) {
+        auto* solid = new G4Box(name, hx, hy, hz);
+        auto* lv = new G4LogicalVolume(solid, material, name);
+        new G4PVPlacement(nullptr, center, lv, name, phantomLV,
+                          false, 0, true);
+        auto* vis = new G4VisAttributes(colour);
         vis->SetForceSolid(true);
-        logical->SetVisAttributes(vis);
-        return logical;
+        lv->SetVisAttributes(vis);
+        fOrganVolumes[id] = lv;
     };
 
-    // Tongue is offset from the catheter axis to avoid overlapping
-    // the catheter/source; this is NOT an anatomical HDR implant model.
-    auto logicTongue = addOrgan(
-        "Tongue", 25*mm, 10*mm, 18*mm,
-        G4ThreeVector(0, -15*mm, 50*mm), tissueMat,
-        G4Colour(0.95, 0.35, 0.45));
+    addOrgan(1, "OralCavity", 25*mm, 6*mm, 18*mm,
+             {0,-34*mm,50*mm}, soft, {0.95,0.75,0.35});
+    addOrgan(2, "Mandible", 35*mm, 8*mm, 20*mm,
+             {0,-55*mm,50*mm}, bone, {0.95,0.95,0.85});
+    addOrgan(3, "SpinalCord", 7*mm, 8*mm, 25*mm,
+             {0,50*mm,50*mm}, soft, {0.55,0.55,0.95});
+    addOrgan(4, "SalivaryLeft", 12*mm, 12*mm, 15*mm,
+             {-55*mm,12*mm,50*mm}, soft, {0.35,0.8,0.45});
+    addOrgan(5, "SalivaryRight", 12*mm, 12*mm, 15*mm,
+             {55*mm,12*mm,50*mm}, soft, {0.35,0.8,0.45});
+    auto* tongueVis = new G4VisAttributes(G4Colour(0.95,0.35,0.45));
+    tongueVis->SetForceSolid(true);
+    tongueLV->SetVisAttributes(tongueVis);
 
-    addOrgan("OralCavity", 25*mm, 6*mm, 18*mm,
-             G4ThreeVector(0, -34*mm, 50*mm), tissueMat,
-             G4Colour(0.95, 0.75, 0.35));
+    // Polyethylene catheter WALL only. Its lumen remains phantom water.
+    auto* catheterSolid = new G4Tubs("Applicator", catheterInner,
+                                     catheterOuter, catheterHalfLength,
+                                     0*deg,360*deg);
+    auto* catheterLV = new G4LogicalVolume(catheterSolid, polyethylene, "Applicator");
+    new G4PVPlacement(nullptr, fApplicatorPosition, catheterLV, "Applicator",
+                      phantomLV, false, 0, true);
+    catheterLV->SetVisAttributes(new G4VisAttributes(G4Colour(0,1,1)));
 
-    addOrgan("Mandible", 35*mm, 8*mm, 20*mm,
-             G4ThreeVector(0, -55*mm, 50*mm), boneMat,
-             G4Colour(0.95, 0.95, 0.85));
+    // Capsule is in catheter lumen and contains the active iridium core.
+    auto* capsuleSolid = new G4Tubs("SourceCapsule", 0, capsuleRadius,
+                                    capsuleHalfLength, 0*deg,360*deg);
+    auto* capsuleLV = new G4LogicalVolume(capsuleSolid, steel, "SourceCapsule");
+    new G4PVPlacement(nullptr, fSourcePosition, capsuleLV, "SourceCapsule",
+                      phantomLV, false, 0, true);
+    capsuleLV->SetVisAttributes(new G4VisAttributes(G4Colour(1,0.5,0)));
 
-    addOrgan("SpinalCord", 7*mm, 8*mm, 25*mm,
-             G4ThreeVector(0, 50*mm, 50*mm), tissueMat,
-             G4Colour(0.55, 0.55, 0.95));
+    auto* coreSolid = new G4Tubs("Ir192Source", 0, fSourceRadius,
+                                 fSourceHalfLength, 0*deg,360*deg);
+    auto* coreLV = new G4LogicalVolume(coreSolid, iridium, "Ir192Source");
+    new G4PVPlacement(nullptr, {}, coreLV, "Ir192Source",
+                      capsuleLV, false, 0, true);
+    coreLV->SetVisAttributes(new G4VisAttributes(G4Colour(1,0,0)));
 
-    addOrgan("SalivaryLeft", 12*mm, 12*mm, 15*mm,
-             G4ThreeVector(-55*mm, 12*mm, 50*mm), tissueMat,
-             G4Colour(0.35, 0.8, 0.45));
+    auto* pbSolid = new G4Box("PbShield", pbThickness/2.,
+                              pbHalfWidth, pbHalfLength);
+    auto* pbLV = new G4LogicalVolume(pbSolid, lead, "PbShield");
+    new G4PVPlacement(nullptr, pbPosition, pbLV, "PbShield",
+                      phantomLV, false, 0, true);
+    pbLV->SetVisAttributes(new G4VisAttributes(G4Colour(0.45,0.45,0.45)));
 
-    addOrgan("SalivaryRight", 12*mm, 12*mm, 15*mm,
-             G4ThreeVector(55*mm, 12*mm, 50*mm), tissueMat,
-             G4Colour(0.35, 0.8, 0.45));
-
-    // Existing single-volume dose scoring now targets Tongue.
-    fScoringVolume = logicTongue;
-
-    // =====================================================
-    // 5. INTERSTITIAL APPLICATOR
-    // =====================================================
-
-    const G4double applicatorInnerRadius =
-        0.60 * mm;
-
-    const G4double applicatorOuterRadius =
-        0.80 * mm;
-
-    const G4double applicatorHalfLength =
-        25.0 * mm;
-
-    auto solidApplicator = new G4Tubs(
-        "Applicator",
-        applicatorInnerRadius,
-        applicatorOuterRadius,
-        applicatorHalfLength,
-        0. * deg,
-        360. * deg
-    );
-
-    auto logicApplicator = new G4LogicalVolume(
-        solidApplicator,
-        applicatorMat,
-        "Applicator"
-    );
-
-    new G4PVPlacement(
-        nullptr,
-        fApplicatorPosition,
-        logicApplicator,
-        "Applicator",
-        logicPhantom,
-        false,
-        0,
-        true
-    );
-
-
-    // =====================================================
-    // 6. STAINLESS STEEL SOURCE CAPSULE
-    // =====================================================
-
-    const G4double capsuleRadius =
-        0.45 * mm;
-
-    const G4double capsuleHalfLength =
-        1.75 * mm;
-
-    auto solidCapsule = new G4Tubs(
-        "SourceCapsule",
-        0.,
-        capsuleRadius,
-        capsuleHalfLength,
-        0. * deg,
-        360. * deg
-    );
-
-    auto logicCapsule = new G4LogicalVolume(
-        solidCapsule,
-        capsuleMat,
-        "SourceCapsule"
-    );
-
-    // The capsule occupies the hollow applicator
-    // channel. Both are daughters of World.
-    new G4PVPlacement(
-        nullptr,
-        fSourcePosition,
-        logicCapsule,
-        "SourceCapsule",
-        logicPhantom,
-        false,
-        0,
-        true
-    );
-
-
-    // =====================================================
-    // 7. ACTIVE IR-192 SOURCE
-    // =====================================================
-
-    auto solidSource = new G4Tubs(
-        "Ir192Source",
-        0.,
-        fSourceRadius,
-        fSourceHalfLength,
-        0. * deg,
-        360. * deg
-    );
-
-    auto logicSource = new G4LogicalVolume(
-        solidSource,
-        iridiumMat,
-        "Ir192Source"
-    );
-
-    // Daughter of SourceCapsule:
-    // its position is LOCAL to the capsule.
-    new G4PVPlacement(
-        nullptr,
-        G4ThreeVector(0., 0., 0.),
-        logicSource,
-        "Ir192Source",
-        logicCapsule,
-        false,
-        0,
-        true
-    );
-
-
-    // =====================================================
-    // 8. FIXED LOCALIZED Pb SHIELD
-    // =====================================================
-
-    const G4double shieldThickness =
-        1.0 * mm;
-
-    const G4double shieldHalfWidth =
-        5.0 * mm;
-
-    const G4double shieldHalfLength =
-        5.0 * mm;
-
-    const G4double shieldGap =
-        0.10 * mm;
-
-    const G4double shieldX =
-        applicatorOuterRadius
-        + shieldGap
-        + shieldThickness / 2.0;
-
-    // Pb shield remains centered at z = 50 mm.
-    const G4ThreeVector shieldPosition =
-        fApplicatorPosition
-        + G4ThreeVector(shieldX, 0., 0.);
-
-    auto solidShield = new G4Box(
-        "PbShield",
-        shieldThickness / 2.0,
-        shieldHalfWidth,
-        shieldHalfLength
-    );
-
-    auto logicShield = new G4LogicalVolume(
-        solidShield,
-        leadMat,
-        "PbShield"
-    );
-
-    new G4PVPlacement(
-        nullptr,
-        shieldPosition,
-        logicShield,
-        "PbShield",
-        logicPhantom,
-        false,
-        0,
-        true
-    );
-
-
-    // =====================================================
-    // 9. VISUALIZATION
-    // =====================================================
-
-    auto worldVis = new G4VisAttributes();
-    worldVis->SetVisibility(false);
-    logicWorld->SetVisAttributes(worldVis);
-
-    auto phantomVis = new G4VisAttributes(G4Colour(0.4, 0.7, 0.9, 0.08));
-    phantomVis->SetVisibility(true);
-    phantomVis->SetForceWireframe(true);
-    logicPhantom->SetVisAttributes(phantomVis);
-
-    auto applicatorVis = new G4VisAttributes(
-        G4Colour(0.0, 1.0, 1.0)
-    );
-    applicatorVis->SetVisibility(true);
-    logicApplicator->SetVisAttributes(
-        applicatorVis
-    );
-
-    auto capsuleVis = new G4VisAttributes(
-        G4Colour(1.0, 0.5, 0.0)
-    );
-    capsuleVis->SetVisibility(true);
-    logicCapsule->SetVisAttributes(capsuleVis);
-
-    auto sourceVis = new G4VisAttributes(
-        G4Colour(1.0, 0.0, 0.0)
-    );
-    sourceVis->SetVisibility(true);
-    logicSource->SetVisAttributes(sourceVis);
-
-    auto shieldVis = new G4VisAttributes(
-        G4Colour(0.45, 0.45, 0.45)
-    );
-    shieldVis->SetVisibility(true);
-    logicShield->SetVisAttributes(shieldVis);
-
-
-    // =====================================================
-    // 10. SCORING VOLUME
-    // =====================================================
-
-    fScoringVolume = logicTongue;
-
-
-    // =====================================================
-    // 11. GEOMETRY INFORMATION
-    // =====================================================
-
-    G4cout << G4endl;
-    G4cout << "========================================"
-           << G4endl;
-    G4cout << "     IR-192 HDR SINGLE DWELL MODEL"
-           << G4endl;
-    G4cout << "========================================"
-           << G4endl;
-
-    G4cout << "Applicator center (mm): "
-           << fApplicatorPosition / mm
-           << G4endl;
-
-    G4cout << "Source center (mm): "
-           << fSourcePosition / mm
-           << G4endl;
-
-    G4cout << "Source radius (mm): "
-           << fSourceRadius / mm
-           << G4endl;
-
-    G4cout << "Source half-length (mm): "
-           << fSourceHalfLength / mm
-           << G4endl;
-
-    G4cout << "Pb shield center (mm): "
-           << shieldPosition / mm
-           << G4endl;
-
-    G4cout << "Pb thickness (mm): "
-           << shieldThickness / mm
-           << G4endl;
-
-    G4cout << "Scoring volume: Tongue (preliminary surrogate)"
-           << G4endl;
-
-    G4cout << "========================================"
-           << G4endl;
-
-    return physWorld;
+    G4cout << "\n=== IR-192 INTERSTITIAL TONGUE PHANTOM (SURROGATE) ===\n"
+           << "Source position: " << fSourcePosition/mm << " mm\n"
+           << "Pb shield position: " << pbPosition/mm << " mm\n"
+           << "Scoring organs: " << kNumOrgans << "\n"
+           << "Fixed Pb plate: " << pbThickness/mm << " mm thick\n"
+           << "=====================================================\n";
+    return worldPV;
 }
 
 } // namespace B1
