@@ -10,6 +10,7 @@
 #include "G4StepPoint.hh"
 #include "G4ParticleDefinition.hh"
 #include "G4VProcess.hh"
+#include "G4ProcessType.hh"
 #include "G4LogicalVolume.hh"
 #include "G4VPhysicalVolume.hh"
 
@@ -39,19 +40,7 @@ void SteppingAction::UserSteppingAction(const G4Step* step)
     // 1. GET SCORING VOLUME
     // =================================================
 
-    if (!fScoringVolume)
-    {
-        const auto detConstruction =
-            static_cast<const DetectorConstruction*>(
-                G4RunManager::GetRunManager()
-                    ->GetUserDetectorConstruction()
-            );
-
-        fScoringVolume =
-            detConstruction->GetScoringVolume();
-    }
-
-
+    const auto* detector=static_cast<const DetectorConstruction*>(G4RunManager::GetRunManager()->GetUserDetectorConstruction());
     // =================================================
     // 2. GET TRACK AND STEP INFORMATION
     // =================================================
@@ -94,14 +83,6 @@ void SteppingAction::UserSteppingAction(const G4Step* step)
         track->GetParticleDefinition()
             ->GetParticleName();
 
-    // Record gamma, electron and positron steps.
-    if (particleName != "gamma" &&
-        particleName != "e-" &&
-        particleName != "e+")
-    {
-        return;
-    }
-
     G4int trackID = track->GetTrackID();
     G4int parentID = track->GetParentID();
 
@@ -133,49 +114,32 @@ void SteppingAction::UserSteppingAction(const G4Step* step)
                 ->GetProcessName();
     }
 
-    // Set history on the current track before downstream scoring.
-    // Also tag particles created in THIS step, including those from
-    // electron interactions in Pb (not just gamma interactions).
-    const G4bool isPbInteraction =
-        (volumeName == "PbShield" &&
-         processName != "Transportation" &&
-         processName != "CoupledTransportation" &&
-         processName != "StepLimiter" &&
-         processName != "UserSpecialCut" &&
-         processName != "None");
-
-    auto* trackInfo = dynamic_cast<TrackInformation*>(
-        track->GetUserInformation());
-    if (isPbInteraction && trackInfo)
-        trackInfo->MarkPbHistory();
-
-    if (isPbInteraction)
-    {
-        const auto* children = step->GetSecondaryInCurrentStep();
-        if (children)
-        {
-            for (const auto* childConst : *children)
-            {
-                auto* child = const_cast<G4Track*>(childConst);
-                if (!child) continue;
-                auto* childInfo = dynamic_cast<TrackInformation*>(
-                    child->GetUserInformation());
-                if (!childInfo)
-                    child->SetUserInformation(new TrackInformation(true));
-                else
-                    childInfo->MarkPbHistory();
-            }
-        }
+    const auto* process=postStepPoint->GetProcessDefinedStep();
+    const G4bool isPbInteraction=volumeName=="PbShield" && process && process->GetProcessType()==fElectromagnetic;
+    auto* trackInfo=dynamic_cast<TrackInformation*>(track->GetUserInformation());
+    if(!trackInfo) { trackInfo=new TrackInformation(); track->SetUserInformation(trackInfo); }
+    // Pre-step state classifies deposition before the endpoint scattering.
+    G4int particle=8;
+    if(particleName=="gamma") particle=parentID==0?(trackInfo->scattered?4:3):5;
+    else if(parentID>0 && particleName=="e-") particle=6;
+    else if(parentID>0 && particleName=="e+") particle=7;
+    for(G4int i=0;i<NOrg;++i) if(detector && logicalVolume==detector->GetOrganVolume(i) && fEventAction) {
+        fEventAction->AddOrganEdep(i,edepStep*preStepPoint->GetWeight(),trackInfo->HasPbHistory(),particle,parentID==0?9:BirthCategory(trackInfo->birth));
+        break;
     }
-
-    // Score ALL particle types, including transportation steps.
-    // Marking history happens first so the current step is classified correctly.
-    if (logicalVolume == fScoringVolume && edepStep > 0.0 && fEventAction)
-    {
-        const G4bool pbHistory = trackInfo && trackInfo->HasPbHistory();
-        fEventAction->AddEdep(edepStep, pbHistory);
+    if(isPbInteraction) trackInfo->MarkPbHistory();
+    if(particleName=="gamma" && (processName=="compt"||processName=="Rayl")) trackInfo->scattered=true;
+    // Snapshot lineage at birth; never retroactively tag earlier children.
+    const auto* children=step->GetSecondaryInCurrentStep();
+    if(children) for(const auto* c:*children) {
+        auto* child=const_cast<G4Track*>(c);
+        if(!child) continue;
+        auto* ci=dynamic_cast<TrackInformation*>(child->GetUserInformation());
+        if(!ci) { ci=new TrackInformation(trackInfo->HasPbHistory()); child->SetUserInformation(ci); }
+        if(trackInfo->HasPbHistory()) ci->MarkPbHistory();
+        ci->birth=volumeName;
     }
-
+    if(particleName!="gamma" && particleName!="e-" && particleName!="e+") return;
     // Exclude transportation-only steps from logging.
     if (processName == "Transportation" ||
         processName == "CoupledTransportation")
@@ -323,17 +287,7 @@ void SteppingAction::UserSteppingAction(const G4Step* step)
     // True particle birth volume requires tracking
     // information recorded when the secondary is created.
 
-    G4String creatorVolume = "Unknown";
-
-    if (parentID == 0)
-    {
-        creatorVolume = "Primary";
-    }
-    else
-    {
-        creatorVolume = "NotTracked";
-    }
-
+    G4String creatorVolume = parentID==0 ? "Primary" : trackInfo->birth;
 
     // =================================================
     // 9. EVENT ID

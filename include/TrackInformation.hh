@@ -22,6 +22,8 @@ public:
 
     void Print() const override;
 
+    G4String birth = "Unknown";
+    G4bool scattered = false;
 private:
     G4bool fPbHistory = false;
 };

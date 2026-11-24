@@ -1,45 +1,18 @@
-
 #ifndef B1EventAction_h
-#define B1EventAction_h 1
-
+#define B1EventAction_h
 #include "G4UserEventAction.hh"
-#include "globals.hh"
-
-class G4Event;
-
-namespace B1
-{
-
+#include "ScoreSchema.hh"
+namespace B1 {
 class RunAction;
-
-class EventAction : public G4UserEventAction
-{
+class EventAction : public G4UserEventAction {
 public:
-
-    explicit EventAction(RunAction* runAction);
-    ~EventAction() override = default;
-
-    void BeginOfEventAction(const G4Event* event) override;
-    void EndOfEventAction(const G4Event* event) override;
-
-    void AddEdep(G4double edep, G4bool pbHistory)
-    {
-        fEdep += edep;
-        if (pbHistory) fEdepPb += edep;
-        else fEdepNoPb += edep;
-    }
-
+ explicit EventAction(RunAction* r): fRunAction(r) {}
+ void BeginOfEventAction(const G4Event*) override;
+ void EndOfEventAction(const G4Event*) override;
+ void AddOrganEdep(G4int organ,G4double e,G4bool pb,G4int particle,G4int birth);
 private:
-
-    RunAction* fRunAction = nullptr;
-
-    // Total energy deposition in scoring volume per event
-    G4double fEdep = 0.;
-    G4double fEdepPb = 0.;
-    G4double fEdepNoPb = 0.;
-
+ RunAction* fRunAction;
+ std::array<Scores,NOrg> fScores{};
 };
-
-} // namespace B1
-
+}
 #endif

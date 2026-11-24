@@ -65,6 +65,10 @@ RunAction::RunAction()
     auto accumulableManager =
         G4AccumulableManager::Instance();
 
+    for(G4int i=0;i<NOrg;++i) for(G4int j=0;j<NCat;++j) {
+        accumulableManager->Register(sums[i][j]);
+        accumulableManager->Register(squares[i][j]);
+    }
     accumulableManager->Register(fEdep);
     accumulableManager->Register(fEdep2);
     accumulableManager->Register(fPbEdep);
@@ -189,6 +193,12 @@ RunAction::RunAction()
     analysisManager->CreateNtupleDColumn("EdepNoPb_keV");  // 2
     analysisManager->CreateNtupleDColumn("EdepTotal_keV");// 3
     analysisManager->FinishNtuple();
+    analysisManager->CreateNtuple("OrganEventDose","Per-event organ energy categories");
+    analysisManager->CreateNtupleIColumn("EventID");
+    analysisManager->CreateNtupleIColumn("OrganID");
+    for(G4int j=0;j<NCat;++j) analysisManager->CreateNtupleDColumn(G4String(Category(j))+"_keV");
+    analysisManager->FinishNtuple();
+
 }
 
 
@@ -415,6 +425,23 @@ void RunAction::EndOfRunAction(const G4Run* run)
            << " %" << G4endl;
 
 
+
+    G4cout << "\n========== MULTI ORGAN DOSE SUMMARY ==========\n";
+    for(G4int i=0;i<NOrg;++i) {
+        auto* lv=detector->GetOrganVolume(i);
+        if(!lv || lv->GetMass()<=0.) { G4cout << "Invalid organ " << i << G4endl; continue; }
+        const auto m=lv->GetMass();
+        G4cout << "\n" << lv->GetName() << " mass_g=" << m/g << G4endl;
+        for(G4int j=0;j<NCat;++j) {
+            const auto e=sums[i][j].GetValue();
+            const auto u=sigmaSum(e,squares[i][j].GetValue());
+            G4cout << Category(j) << ": " << e/m/gray << " Gy; per_event=" << e/m/gray/nofEvents << " Gy; sigma_Gy=";
+            if(nofEvents>1) G4cout << u/m/gray; else G4cout << "NA";
+            G4cout << "; relative_percent=";
+            if(e>0 && nofEvents>1) G4cout << 100*u/e; else G4cout << "NA";
+            G4cout << G4endl;
+        }
+    }
     // =================================================
     // 9. PARTICLE STATISTICS
     // =================================================
@@ -548,4 +575,13 @@ void RunAction::RecordHistoryEventDose(G4int eventID, G4double pb, G4double noPb
     analysis->AddNtupleRow(4);
 }
 
+void RunAction::RecordOrgan(G4int eventID,G4int organ,const Scores& s) {
+    auto* a=G4AnalysisManager::Instance();
+    a->FillNtupleIColumn(5,0,eventID); a->FillNtupleIColumn(5,1,organ);
+    for(G4int j=0;j<NCat;++j) {
+        sums[organ][j]+=s[j]; squares[organ][j]+=s[j]*s[j];
+        a->FillNtupleDColumn(5,j+2,s[j]/keV);
+    }
+    a->AddNtupleRow(5);
+}
 } // namespace B1

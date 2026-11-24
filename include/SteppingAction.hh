@@ -25,7 +25,7 @@ private:
 
     EventAction* fEventAction = nullptr;
 
-    G4LogicalVolume* fScoringVolume = nullptr;
+
 
 };
 

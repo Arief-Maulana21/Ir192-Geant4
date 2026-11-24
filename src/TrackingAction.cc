@@ -80,29 +80,6 @@ void TrackingAction::PostUserTrackingAction(const G4Track* track)
 {
     if (!track || !fpTrackingManager) return;
 
-    const auto* info = dynamic_cast<const TrackInformation*>(
-        track->GetUserInformation());
-    if (!info) return;
-
-    auto* secondaries = fpTrackingManager->GimmeSecondaries();
-    if (!secondaries) return;
-
-    for (auto* child : *secondaries)
-    {
-        if (!child) continue;
-        // Child may have been tagged at the producing step.
-        auto* childInfo = dynamic_cast<TrackInformation*>(
-            child->GetUserInformation());
-        if (!childInfo)
-        {
-            child->SetUserInformation(
-                new TrackInformation(info->HasPbHistory()));
-        }
-        else if (info->HasPbHistory())
-        {
-            childInfo->MarkPbHistory();
-        }
-    }
+    // Metadata is assigned at the actual production step, not at track end.
 }
-
 } // namespace B1

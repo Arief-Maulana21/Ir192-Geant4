@@ -5,6 +5,7 @@
 #include "G4UserRunAction.hh"
 #include "G4Accumulable.hh"
 #include "globals.hh"
+#include "ScoreSchema.hh"
 
 class G4Run;
 
@@ -50,7 +51,9 @@ public:
         G4double sourceZ
     );
 
+    void RecordOrgan(G4int eventID,G4int organ,const Scores& s);
 private:
+    std::array<std::array<G4Accumulable<G4double>,NCat>,NOrg> sums{}, squares{};
 
     G4Accumulable<G4double> fEdep{0.};
     G4Accumulable<G4double> fEdep2{0.};
