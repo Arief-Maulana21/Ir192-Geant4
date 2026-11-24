@@ -1,3 +1,99 @@
+// ROOT 6 macro. Run from analysis/ or supply explicit paths.
+
+#include <TFile.h>
+
+#include <TTree.h>
+
+#include <TH1D.h>
+
+#include <TH2D.h>
+
+#include <TCanvas.h>
+
+#include <TLegend.h>
+
+#include <TStyle.h>
+
+#include <TSystem.h>
+
+#include <TString.h>
+
+#include <TROOT.h>
+
+#include <string>
+
+#include <array>
+
+#include <vector>
+
+#include <fstream>
+
+#include <iostream>
+
+#include <iomanip>
+
+#include <cmath>
+
+#include <algorithm>
+
+#include <limits>
+
+#include <memory>
+
+#include <stdexcept>
+
+namespace IrAnalysis {
+
+    const int O=6,C=17;
+
+    const char* organs[O]= {
+        "Tongue","OralCavity","Mandible","SpinalCord","SalivaryLeft","SalivaryRight"
+    };
+
+    const char* cats[C]= {
+        "Total","PbHistory","NoPbHistory","PrimaryGammaUnscattered","PrimaryGammaScattered","SecondaryGamma","SecondaryElectron","SecondaryPositron","OtherParticle","PrimaryBirth","PbGenerated","CapsuleGenerated","ApplicatorGenerated","SourceGenerated","TissueGenerated","PhantomGenerated","OtherGenerated"
+    };
+
+    struct Stat {
+        long double s=0,q=0;
+        void add(double x) {
+            s+=x;
+            q+=(long double)x*x;
+        }
+        double err(Long64_t n) const {
+            return n>1?std::sqrt(std::max(0.L,(q-s*s/n)*n/(n-1))):std::numeric_limits<double>::quiet_NaN();
+        }
+    };
+
+    void require(TTree* t,const char* b) {
+        if(!t->GetBranch(b)) throw std::runtime_error(std::string("Missing branch: ")+b);
+    }
+
+    template<class T> void bind(TTree* t,const char* b,T* p) {
+        require(t,b);
+        if(t->SetBranchAddress(b,p)<0)throw std::runtime_error(std::string("Branch type mismatch: ")+b);
+    }
+
+    void save(TH1* h,const TString& path,const char* opt="HIST") {
+        TCanvas c("plot","plot",1000,650);
+        c.SetLeftMargin(.14);
+        c.SetBottomMargin(.16);
+        h->Draw(opt);
+        c.SaveAs(path);
+    }
+
+}
+
+void analysis(const char* input="../build/SecondaryRadiation.root",const char* output="../Result",const char* masses="organ_masses.csv",
+double activity_GBq=370.0, double photonYield=2.2992,
+double dwellTime_s=100.0) {
+
+    using namespace IrAnalysis;
+
+    try {
+
+        std::unique_ptr<TFile> f(TFile::Open(input,"READ"));
+        if(!f||f->IsZombie())throw std::runtime_error("Cannot open ROOT input");
 
         auto* t=dynamic_cast<TTree*>(f->Get("OrganEventDose"));
         auto* p=dynamic_cast<TTree*>(f->Get("Primary"));
@@ -158,3 +254,72 @@
             primary.Fill(en);
         }
         p->ResetBranchAddresses();
+        save(&primary,out+"/PrimarySpectrum.png");
+
+        auto* s=dynamic_cast<TTree*>(f->Get("Secondary"));
+        if(s) {
+            TH1D g("g","Secondary gamma logged steps;Pre-step energy (keV);Steps",400,0,1600),el("el","Secondary electron logged steps;Pre-step energy (keV);Steps",400,0,1600);
+            TH2D xy("xy","Logged step energy deposition;X (cm);Y (cm)",100,-10,10,100,-10,10);
+            Int_t parent=0;
+            double x=0,y=0,dep=0,w=0;
+            std::string* particle=nullptr;
+            bind(s,"ParentID",&parent);
+            bind(s,"Particle",&particle);
+            bind(s,"Energy_keV",&en);
+            bind(s,"X_cm",&x);
+            bind(s,"Y_cm",&y);
+            bind(s,"Edep_keV",&dep);
+            bind(s,"Weight",&w);
+            for(Long64_t r=0;r<s->GetEntries();++r) {
+                if(s->GetEntry(r)<=0)throw std::runtime_error("Cannot read secondary row");
+                if(parent>0&&particle) {
+                    if(*particle=="gamma")g.Fill(en);
+                    if(*particle=="e-")el.Fill(en);
+                }
+                if(dep>0)xy.Fill(x,y,dep*w);
+            }
+            s->ResetBranchAddresses();
+            save(&g,out+"/SecondaryGammaStepSpectrum.png");
+            save(&el,out+"/ElectronStepSpectrum.png");
+            save(&xy,out+"/LoggedStepEdepXY.png","COLZ");
+        }
+
+        auto* b=dynamic_cast<TTree*>(f->Get("PbInteractions"));
+        if(b) {
+            TH1D h("interactions","Recorded Pb photon interactions;Process;Interactions",3,0,3);
+            const char* names[]= {
+                "compt","phot","Rayl"
+            };
+            std::string* process=nullptr;
+            bind(b,"Process",&process);
+            for(int i=0;i<3;++i)h.GetXaxis()->SetBinLabel(i+1,names[i]);
+            for(Long64_t r=0;r<b->GetEntries();++r) {
+                if(b->GetEntry(r)<=0)throw std::runtime_error("Cannot read Pb row");
+                for(int i=0;i<3;++i)if(process&&*process==names[i])h.Fill(i+.5);
+            }
+            b->ResetBranchAddresses();
+            save(&h,out+"/PbInteractions.png","BAR");
+        }
+
+        std::ofstream v((out+"/Validation.txt").Data());
+        v<<std::setprecision(12)<<"Activity (GBq): "<<activity_GBq<<"\nPhoton yield: "<<photonYield<<"\nDwell time (s): "<<dwellTime_s<<"\nNormalization factor: "<<normFactor<<"\nStatistical uncertainty only; single dwell; one photon per event.\nEvents: "<<n<<"\nOrgan rows: "<<O*n<<"\nMaximum partition residual (keV): "<<maxResidual<<"\nFailed partitions: "<<bad<<"\n";
+        std::cout<<"Analysis complete: "<<out<<"\n";
+
+        std::cout<<"Normalization factor: "<<normFactor<<"\n";
+
+        for(int i=0;i<O;++i) {
+
+            const double k=1.602176634e-13/mass[i];
+
+            std::cout<<organs[i]<<": "<<a[i][0].s*k*normFactor
+            <<" +/- "<<a[i][0].err(n)*k*normFactor<<" Gy\n";
+
+        }
+
+    }
+    catch(const std::exception& e) {
+        std::cerr<<"Analysis failed: "<<e.what()<<"\n";
+    }
+
+}
+
