@@ -1,0 +1,16 @@
+Activity (GBq): 370
+Photon yield: 2.084663
+Dwell time (s): 100
+Normalization factor: 7713253100
+Statistical uncertainty only; single dwell; one photon per event.
+Events: 10000
+Organ rows: 60000
+Maximum partition residual (keV): 1.13686837722e-13
+Failed partitions: 0
+Positive organ rows: 2618
+Tongue: Edep (keV) = 227278.997254, positive events = 2018
+OralCavity: Edep (keV) = 11938.3852523, positive events = 162
+Mandible: Edep (keV) = 19444.7467562, positive events = 244
+SpinalCord: Edep (keV) = 4231.194682, positive events = 60
+SalivaryLeft: Edep (keV) = 4554.03290707, positive events = 73
+SalivaryRight: Edep (keV) = 4933.39566677, positive events = 61

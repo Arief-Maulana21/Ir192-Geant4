@@ -3,6 +3,9 @@
 #include <TFile.h>
 
 #include <TTree.h>
+#include <TLeafC.h>
+#include <TLeaf.h>
+#include <cstring>
 
 #include <TH1D.h>
 
@@ -85,7 +88,7 @@ namespace IrAnalysis {
 }
 
 void analysis(const char* input="../build/SecondaryRadiation.root",const char* output="../Result",const char* masses="organ_masses.csv",
-double activity_GBq=370.0, double photonYield=2.2992,
+double activity_GBq=370.0, double photonYield=2.084663,
 double dwellTime_s=100.0) {
 
     using namespace IrAnalysis;
@@ -142,7 +145,14 @@ double dwellTime_s=100.0) {
         };
         bind(t,"EventID",&event);
         bind(t,"OrganID",&id);
-        for(int j=0;j<C;++j)bind(t,Form("%s_keV",cats[j]),&e[j]);
+        std::array<TLeaf*,C> energyLeaves{};
+        for(int j=0;j<C;++j) {
+            const std::string name=std::string(cats[j])+"_keV";
+            energyLeaves[j]=t->GetLeaf(name.c_str());
+            if(!energyLeaves[j]) throw std::runtime_error("Missing leaf: "+name);
+        }
+        Long64_t positiveRows=0;
+        std::array<Long64_t,O> positiveByOrgan{};
 
         std::array<std::array<Stat,C>,O> a {
         };
@@ -158,9 +168,12 @@ double dwellTime_s=100.0) {
             seen[event]|=bit;
 
             for(int j=0;j<C;++j) {
+                e[j]=energyLeaves[j]->GetValue();
                 if(!std::isfinite(e[j])||e[j]<0)throw std::runtime_error("Invalid deposited energy");
                 a[id][j].add(e[j]);
             }
+
+            if(e[0]>0) { ++positiveRows; ++positiveByOrgan[id]; }
 
             double residuals[3]= {
                 e[0]-e[1]-e[2],e[0],e[0]
@@ -174,6 +187,16 @@ double dwellTime_s=100.0) {
         }
 
         if(bad)throw std::runtime_error("Energy partition validation failed");
+        t->ResetBranchAddresses();
+        const Long64_t expectedPositive=t->GetEntries("Total_keV>0");
+        if(expectedPositive<0 || expectedPositive!=positiveRows)
+            throw std::runtime_error("Positive energy row count mismatch");
+        if(positiveRows==0) throw std::runtime_error("All organ energy deposits are zero");
+        std::cout<<"Positive organ rows: "<<positiveRows<<" / "<<O*n<<"\n";
+        for(int i=0;i<O;++i) {
+            std::cout<<organs[i]<<": Edep = "<<a[i][0].s
+                     <<" keV; positive events = "<<positiveByOrgan[i]<<"\n";
+        }
 
         t->ResetBranchAddresses();
 
@@ -262,9 +285,9 @@ double dwellTime_s=100.0) {
             TH2D xy("xy","Logged step energy deposition;X (cm);Y (cm)",100,-10,10,100,-10,10);
             Int_t parent=0;
             double x=0,y=0,dep=0,w=0;
-            std::string* particle=nullptr;
+            auto* particle=dynamic_cast<TLeafC*>(s->GetLeaf("Particle"));
+            if(!particle) throw std::runtime_error("Particle is not a ROOT C-string leaf");
             bind(s,"ParentID",&parent);
-            bind(s,"Particle",&particle);
             bind(s,"Energy_keV",&en);
             bind(s,"X_cm",&x);
             bind(s,"Y_cm",&y);
@@ -272,9 +295,9 @@ double dwellTime_s=100.0) {
             bind(s,"Weight",&w);
             for(Long64_t r=0;r<s->GetEntries();++r) {
                 if(s->GetEntry(r)<=0)throw std::runtime_error("Cannot read secondary row");
-                if(parent>0&&particle) {
-                    if(*particle=="gamma")g.Fill(en);
-                    if(*particle=="e-")el.Fill(en);
+                if(parent>0) {
+                    if(std::strcmp(particle->GetValueString(),"gamma")==0)g.Fill(en);
+                    if(std::strcmp(particle->GetValueString(),"e-")==0)el.Fill(en);
                 }
                 if(dep>0)xy.Fill(x,y,dep*w);
             }
@@ -290,12 +313,12 @@ double dwellTime_s=100.0) {
             const char* names[]= {
                 "compt","phot","Rayl"
             };
-            std::string* process=nullptr;
-            bind(b,"Process",&process);
+            auto* process=dynamic_cast<TLeafC*>(b->GetLeaf("Process"));
+            if(!process) throw std::runtime_error("Process is not a ROOT C-string leaf");
             for(int i=0;i<3;++i)h.GetXaxis()->SetBinLabel(i+1,names[i]);
             for(Long64_t r=0;r<b->GetEntries();++r) {
                 if(b->GetEntry(r)<=0)throw std::runtime_error("Cannot read Pb row");
-                for(int i=0;i<3;++i)if(process&&*process==names[i])h.Fill(i+.5);
+                for(int i=0;i<3;++i)if(std::strcmp(process->GetValueString(),names[i])==0)h.Fill(i+.5);
             }
             b->ResetBranchAddresses();
             save(&h,out+"/PbInteractions.png","BAR");
@@ -303,6 +326,8 @@ double dwellTime_s=100.0) {
 
         std::ofstream v((out+"/Validation.txt").Data());
         v<<std::setprecision(12)<<"Activity (GBq): "<<activity_GBq<<"\nPhoton yield: "<<photonYield<<"\nDwell time (s): "<<dwellTime_s<<"\nNormalization factor: "<<normFactor<<"\nStatistical uncertainty only; single dwell; one photon per event.\nEvents: "<<n<<"\nOrgan rows: "<<O*n<<"\nMaximum partition residual (keV): "<<maxResidual<<"\nFailed partitions: "<<bad<<"\n";
+        v<<"Positive organ rows: "<<positiveRows<<"\n";
+        for(int i=0;i<O;++i) v<<organs[i]<<": Edep (keV) = "<<a[i][0].s<<", positive events = "<<positiveByOrgan[i]<<"\n";
         std::cout<<"Analysis complete: "<<out<<"\n";
 
         std::cout<<"Normalization factor: "<<normFactor<<"\n";
@@ -322,4 +347,3 @@ double dwellTime_s=100.0) {
     }
 
 }
-

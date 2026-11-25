@@ -1,0 +1,9 @@
+Activity (GBq): 370
+Photon yield: 2.084663
+Dwell time (s): 100
+Normalization factor: 7713253100
+Statistical uncertainty only; single dwell; one photon per event.
+Events: 10000
+Organ rows: 60000
+Maximum partition residual (keV): 0
+Failed partitions: 0
