@@ -15,6 +15,9 @@ namespace B1 {
 class DetectorConstruction : public G4VUserDetectorConstruction {
 public:
     static constexpr G4int kNumOrgans = 6;
+
+    std::array<G4LogicalVolume*, kNumOrgans>
+    fOrganVolumes{};
     DetectorConstruction() = default;
     ~DetectorConstruction() override = default;
     G4VPhysicalVolume* Construct() override;
@@ -34,8 +37,8 @@ private:
     std::array<G4LogicalVolume*, kNumOrgans> fOrganVolumes{};
     G4ThreeVector fApplicatorPosition{0., 0., 50.0*mm};
     G4ThreeVector fSourcePosition{0., 0., 50.0*mm};
-    G4double fSourceRadius = 0.30*mm;
-    G4double fSourceHalfLength = 1.50*mm;
+    G4double fSourceRadius = 0.325*mm;
+    G4double fSourceHalfLength = 1.75*mm;
 };
 
 } // namespace B1
