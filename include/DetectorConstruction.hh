@@ -16,8 +16,6 @@ class DetectorConstruction : public G4VUserDetectorConstruction {
 public:
     static constexpr G4int kNumOrgans = 6;
 
-    std::array<G4LogicalVolume*, kNumOrgans>
-    fOrganVolumes{};
     DetectorConstruction() = default;
     ~DetectorConstruction() override = default;
     G4VPhysicalVolume* Construct() override;
